@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# LLM cache (large, generated at runtime/Docker build)
+llm_sim_cache.json
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# uv
+.uv/
