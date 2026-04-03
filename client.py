@@ -26,8 +26,9 @@ Usage (sync):
         ))
         print(result.reward)  # F1 score
 
-From HuggingFace Space:
-    env = ServiceImpactEnv.from_hub("your-org/service-impact-env")
+From HuggingFace Space (point ENV_BASE_URL at the live Space):
+    async with ServiceImpactEnv(base_url="https://rajkamal2819-cascade-mind.hf.space") as env:
+        result = await env.reset(seed=0)
 """
 from __future__ import annotations
 

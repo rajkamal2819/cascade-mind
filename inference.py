@@ -6,17 +6,24 @@ Baseline inference script for service_impact_env.
 Runs an LLM agent (via OpenAI-compatible API) against all 3 tasks
 (easy, medium, hard) and reports reproducible F1 scores.
 
-Environment variables required:
-  OPENAI_API_KEY   — API key (also used as HF_TOKEN if set)
-  API_BASE_URL     — API endpoint (default: https://api.openai.com/v1)
-  MODEL_NAME       — model to use (default: gpt-4o-mini)
-  ENV_BASE_URL     — running environment URL (default: http://localhost:8000)
+Environment variables:
+  HF_TOKEN       — HuggingFace / API key (required)
+  API_BASE_URL   — LLM API endpoint (default: https://api.openai.com/v1)
+  MODEL_NAME     — model identifier (default: gpt-4o-mini)
+  ENV_BASE_URL   — environment server URL
+                   (default: https://rajkamal2819-cascade-mind.hf.space)
 
-Usage:
-  export OPENAI_API_KEY=sk-...
+Usage against the live HuggingFace Space:
+  export HF_TOKEN=hf_...
+  export API_BASE_URL=https://api.cerebras.ai/v1
+  export MODEL_NAME=llama-3.3-70b
+  python inference.py
+
+Usage against a local server:
+  export HF_TOKEN=hf_...
+  export ENV_BASE_URL=http://localhost:8000
   export API_BASE_URL=https://api.openai.com/v1
   export MODEL_NAME=gpt-4o-mini
-  export ENV_BASE_URL=http://localhost:8000
   python inference.py
 """
 from __future__ import annotations
@@ -54,13 +61,12 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-# HF_TOKEN is the primary key per hackathon requirements; OPENAI_API_KEY is fallback
+# HF_TOKEN is the primary key; OPENAI_API_KEY accepted as fallback
 API_KEY      = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY", "")
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
-# SPACE_ID: set to "hf-username/cascade-mind" to connect directly to HF Space
-SPACE_ID     = os.environ.get("SPACE_ID", "")
+# ENV_BASE_URL defaults to the live HF Space so `python inference.py` works out-of-the-box
+ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "https://rajkamal2819-cascade-mind.hf.space")
 
 # Task seeds: 0 → easy, 1 → medium, 2 → hard  (seed % 3 determines difficulty)
 TASK_SEEDS = {
@@ -216,13 +222,7 @@ async def run_episode(
 ) -> Dict[str, Any]:
     """Run one complete episode and return results dict."""
 
-    # Connect to HF Space if SPACE_ID is set, otherwise use local ENV_BASE_URL
-    env_ctx = (
-        ServiceImpactEnv.from_hub(SPACE_ID)
-        if SPACE_ID
-        else ServiceImpactEnv(base_url=env_url)
-    )
-    async with env_ctx as env:
+    async with ServiceImpactEnv(base_url=env_url) as env:
         # ── Reset ──────────────────────────────────────────────────────
         reset_result = await env.reset(seed=seed)
         obs = reset_result.observation
@@ -364,9 +364,7 @@ async def main() -> None:
     print("  service_impact_env — Baseline Inference Script")
     print(f"  Model     : {MODEL_NAME}")
     print(f"  API Base  : {API_BASE_URL}")
-    print(f"  Env URL   : {SPACE_ID if SPACE_ID else ENV_BASE_URL}")
-    if SPACE_ID:
-        print(f"  HF Space  : {SPACE_ID}")
+    print(f"  Env URL   : {ENV_BASE_URL}")
     print("=" * 65)
 
     if not API_KEY:
