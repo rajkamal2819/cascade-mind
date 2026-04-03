@@ -16,25 +16,117 @@ tags:
   - networkx
 ---
 
-# 🔬 service_impact_env
+# cascade-mind — Service Impact Analysis
 
-**Cross-service microservice impact analysis — with LLMs inside the environment**
+An AI agent plays the role of an on-call SRE engineer. A microservice just changed — the agent must trace the blast radius and identify every downstream service that will be impacted, using the same noisy, LLM-generated tool output a real engineer would see.
 
-> *An OpenEnv environment for the Meta × PyTorch OpenEnv Hackathon*
+Every observation (incident alerts, registry lookups, runbooks, monitoring snapshots) is generated live by **Llama-3.1-8B via Cerebras**. The ground truth is a seeded `networkx` dependency graph of 15 microservices — the agent never sees it directly.
 
-[![openenv](https://img.shields.io/badge/openenv-compatible-blue)](https://github.com/meta-pytorch/OpenEnv)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-green)](https://python.org)
-[![License](https://img.shields.io/badge/license-Apache%202.0-orange)](LICENSE)
+📖 **[Full API docs + WebSocket example](https://rajkamal2819-cascade-mind.hf.space/docs)**
 
 ---
 
-## What is this?
+## Try it in the Playground
 
-`service_impact_env` is an OpenEnv environment where an AI agent acts as a **Site Reliability Engineer (SRE)** investigating a production incident. The agent must determine which downstream microservices are affected by a breaking change, using only the noisy, imperfect tools real SREs use every day.
-
-**The twist**: Llama-3.1-8B generates every observation. The agent never sees clean ground-truth data — it reads realistic PagerDuty alerts, stale service registry dumps, runbooks with outdated dependency tables, and Datadog monitoring JSON, all generated live by Llama-3.1-8B via Cerebras.
+1. Click **Reset** to start a new episode — you'll get a PagerDuty-style incident alert
+2. Pick an **Action Type** from the dropdown and enter a **Service Name**
+3. Click **Step** to see the LLM-generated tool output
+4. When ready, select `submit` and enter your list of affected services in **Affected Services**
+5. Click **Step** to submit — your F-beta score appears in the response
 
 ---
+
+## Available Actions
+
+| Action Type | What it returns |
+|---|---|
+| `query_dependents` | Services that directly call the queried service (may be noisy) |
+| `query_dependencies` | Services the queried service depends on (may be noisy) |
+| `query_runbook` | Internal runbook: ownership, SLOs, known failure modes |
+| `query_changelog` | Recent PR / deployment changelog for the changed service |
+| `query_monitoring` | Live monitoring snapshot: latency, error rate, dependency health |
+| `submit` | Submit your final answer — ends the episode, returns score |
+
+`query_dependents` and `query_dependencies` draw from a shared **query budget of 10**.  
+The other three actions are always free.
+
+---
+
+## Connect from Python
+
+```python
+import asyncio, json, websockets
+
+async def run():
+    async with websockets.connect("wss://rajkamal2819-cascade-mind.hf.space/ws") as ws:
+        # Start episode
+        await ws.send(json.dumps({"type": "reset", "data": {"seed": 0}}))
+        obs = json.loads(await ws.recv())
+        print(obs["data"]["message"])          # incident alert
+
+        # Read the changelog (free, no budget)
+        await ws.send(json.dumps({"type": "step", "data": {
+            "action_type": "query_changelog", "service_name": "catalog_service"
+        }}))
+        print(json.loads(await ws.recv())["data"]["message"])
+
+        # Query dependents
+        await ws.send(json.dumps({"type": "step", "data": {
+            "action_type": "query_dependents", "service_name": "catalog_service"
+        }}))
+        print(json.loads(await ws.recv())["data"]["message"])
+
+        # Submit answer
+        await ws.send(json.dumps({"type": "step", "data": {
+            "action_type": "submit",
+            "affected_services": ["api_gateway", "cart_service", "web_backend"]
+        }}))
+        result = json.loads(await ws.recv())
+        print("Score:", result["data"]["reward"])   # float in [0.0, 1.0]
+
+asyncio.run(run())
+```
+
+Or use the typed Python client:
+
+```python
+from cascade_mind import ServiceImpactEnv
+
+async with ServiceImpactEnv(base_url="https://rajkamal2819-cascade-mind.hf.space") as env:
+    obs, _ = await env.reset(seed=0)
+    print(obs.message)
+```
+
+---
+
+## Scoring
+
+Scored with **F-beta (β=2)** against the ground-truth dependency graph — recall is weighted twice as heavily as precision, because missing a real affected service causes more damage than a false alarm.
+
+Difficulty levels:
+- `easy` — clean registry output, 5 query budget
+- `medium` — one service added/removed in registry output, 8 query budget  
+- `hard` — two services added/removed, 12 query budget
+
+---
+
+## Run the Baseline Agent
+
+```bash
+git clone https://github.com/rajkamal2819/cascade-mind
+cd cascade-mind
+
+export HF_TOKEN=hf_...
+export API_BASE_URL=https://api.cerebras.ai/v1
+export MODEL_NAME=llama-3.3-70b
+
+python inference.py
+```
+
+The script runs all three tasks (easy / medium / hard) against the live Space and prints per-task F-beta scores plus a final `JSON_RESULTS` summary.
+
+---
+
 
 ## Architecture
 
