@@ -35,6 +35,37 @@ except ImportError:
     from server.service_impact_environment import ServiceImpactEnvironment  # type: ignore
 
 
+# ─── Patch openenv-core web_interface for cascade-mind branding ───────────────
+# Must happen BEFORE create_app() is called so the web interface picks up changes.
+try:
+    import openenv.core.env_server.web_interface as _wi
+
+    # 1. Strip YAML frontmatter (--- ... ---) before the README is shown in the
+    #    Gradio accordion — the raw README.md starts with HF Space config that
+    #    renders as ugly plain text when Gradio displays it as Markdown.
+    _orig_load_readme = _wi._load_readme_from_filesystem
+
+    def _patched_load_readme(env_name):  # type: ignore[override]
+        content = _orig_load_readme(env_name)
+        if content and content.startswith("---"):
+            end = content.find("\n---\n", 4)
+            if end != -1:
+                content = content[end + 5:].lstrip("\n")
+        return content
+
+    _wi._load_readme_from_filesystem = _patched_load_readme  # type: ignore[assignment]
+
+    # 2. Replace the generic OpenEnv docs link in the Quick Start accordion with
+    #    the cascade-mind Swagger / ReDoc link.
+    _wi.DEFAULT_QUICK_START_MARKDOWN = _wi.DEFAULT_QUICK_START_MARKDOWN.replace(
+        "For more information, see the [OpenEnv documentation](https://meta-pytorch.org/OpenEnv/).",
+        "For more information, see the **[cascade-mind API docs](https://rajkamal2819-cascade-mind.hf.space/docs)**.",
+    )
+except Exception:
+    pass  # Never crash the server over a cosmetic patch
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 # Pass the CLASS (not an instance) so the server creates one environment
 # per WebSocket session — required for concurrent session isolation.
 # SUPPORTS_CONCURRENT_SESSIONS=True is set on the class, so max_concurrent_envs > 1 is safe.
