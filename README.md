@@ -14,6 +14,7 @@ tags:
   - reinforcement-learning
   - incident-response
   - networkx
+base_path: /web
 ---
 
 # 🔬 service_impact_env
