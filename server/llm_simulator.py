@@ -381,8 +381,10 @@ class LLMSimulator:
             else "downstream dependencies — services this service calls"
         )
         noise_pct = int(noise * 100)
-        drop_n    = int(noise * 2)
-        add_n     = int(noise * 2)
+        # Explicit lookup avoids float truncation bug (int(0.40*2)=0 instead of 1)
+        _diff  = next((k for k, v in NOISE_CONFIG.items() if v["noise_level"] == noise), "easy")
+        drop_n = NOISE_CONFIG[_diff]["dropped"]
+        add_n  = NOISE_CONFIG[_diff]["hallucinated"]
         stale_note = (
             "Append: '⚠️  Registry data may be stale (last sync: 30+ days ago).'"
             if noise > 0.35 else ""

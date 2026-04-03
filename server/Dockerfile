@@ -42,7 +42,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
             "httpx>=0.27.0" \
             "websockets>=12.0" \
             "openai>=1.0.0" \
-            "huggingface_hub>=0.24.0"; \
+            "huggingface_hub>=0.24.0" \
+            "jinja2==3.1.4"; \
     fi
 
 # Pass 2: install the project itself

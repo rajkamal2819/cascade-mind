@@ -54,10 +54,13 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-API_KEY      = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN", "")
+# HF_TOKEN is the primary key per hackathon requirements; OPENAI_API_KEY is fallback
+API_KEY      = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY", "")
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "http://localhost:8000")
+# SPACE_ID: set to "hf-username/cascade-mind" to connect directly to HF Space
+SPACE_ID     = os.environ.get("SPACE_ID", "")
 
 # Task seeds: 0 → easy, 1 → medium, 2 → hard  (seed % 3 determines difficulty)
 TASK_SEEDS = {
@@ -80,11 +83,12 @@ A microservice has just been changed (API update, schema migration, config chang
 You must identify ALL downstream services that will be AFFECTED by this change.
 A service X is "affected" if it (directly or transitively) depends on the changed service.
 
-IMPORTANT: You are operating in a realistic SRE environment.
-- Responses from service registries are NOISY — they may omit real services or include stale entries.
-- Runbooks and changelogs may have outdated information or use confusing jargon.
-- You must reason critically from imperfect information, just like a real SRE.
-- Cross-reference multiple sources to build confidence in your answer.
+THE ENVIRONMENT IS NOISY — treat it like real production:
+- Service registry responses MAY silently DROP real dependents or ADD fake ones.
+- Runbooks may list stale or renamed services.
+- A service appearing in MULTIPLE sources (registry + runbook + monitoring) is very likely real.
+- A service appearing in ONLY ONE noisy source may be hallucinated — still include it if budget allows.
+- err on the side of OVER-INCLUSION: missing a real service is 4× worse than a false positive (F-beta β=2).
 
 AVAILABLE ACTIONS (respond with exactly one JSON object per turn):
 
@@ -95,48 +99,73 @@ BUDGET-CONSUMING actions (each deducts 1 from your query budget):
 2. Find what a service DEPENDS ON (its downstream dependencies):
    {"action_type": "query_dependencies", "service_name": "<service>"}
 
-FREE actions (no budget cost — use freely):
+FREE actions (ZERO budget cost — use aggressively):
 3. Read internal runbook/documentation for a service:
    {"action_type": "query_runbook", "service_name": "<service>"}
 
 4. Read the changelog/PR for the changed service:
    {"action_type": "query_changelog", "service_name": "<any service>"}
 
-5. View monitoring dashboard for a service (Datadog-style metrics):
+5. View Datadog-style monitoring dashboard for a service:
    {"action_type": "query_monitoring", "service_name": "<service>"}
 
 TERMINAL action:
-6. Submit your final answer when confident (ends the episode):
+6. Submit your final answer (ends the episode):
    {"action_type": "submit", "affected_services": ["svc_a", "svc_b", ...]}
 
-STRATEGY:
-1. Start with FREE actions on the changed service:
-   - query_changelog to understand WHAT changed and WHY
-   - query_runbook on the changed service for its known consumers
-   - query_monitoring to see which services are actively calling it
+═══════════════════════════════════════════════════
+OPTIMAL STRATEGY — follow this EXACTLY:
+═══════════════════════════════════════════════════
 
-2. Use budget actions for BFS traversal:
-   - query_dependents on the changed service → find direct callers
-   - query_dependents on each caller → find their callers
-   - Continue until no new services are discovered
+PHASE 1 — Free intel (no budget cost, always do all 3):
+  a. query_changelog(changed_service)  → understand what broke
+  b. query_runbook(changed_service)    → get known consumers list
+  c. query_monitoring(changed_service) → see who is actively calling it
 
-3. Cross-reference noisy results:
-   - If registry says service X calls the changed service, verify with query_runbook(X)
-   - If a service appears in runbook but not registry, include it (registry may be stale)
+  → After Phase 1: extract ALL service names mentioned. Add to "candidates" set.
 
-4. Submit when confident OR budget is low (< 3 queries remaining):
-   - Submit with ALL services you have evidence for
-   - Missing a real affected service (false negative) is worse than a false positive
+PHASE 2 — BFS with budget (use query_dependents as primary tool):
+  For each service in candidates (starting with changed_service):
+    - query_dependents(svc) → adds new callers to candidates
+    - If new callers found, add them to candidates for next iteration
+    - Stop when: no new services found OR budget ≤ 3
 
-TEXT PARSING: The response text may list services like "- auth_service (team: platform)"
-or "→ cart_service (status: active)". Extract the service names from the text.
+  IMPORTANT: query_dependents is better than query_dependencies for finding blast radius.
+  Only use query_dependencies when you need to verify a service's role.
 
-IMPORTANT:
-- result[] field will be EMPTY for all query actions — information is in message text only.
-- result[] is only populated on submit (reveals the ground truth for review).
-- Respond with ONLY a single valid JSON object. No explanation, no markdown.
-- The "affected_services" list should NOT include the changed service itself.
-- If budget < 3, SUBMIT immediately with everything you've found.
+PHASE 3 — Free verification (for uncertain services, zero budget):
+  For any service seen in ONLY ONE source and you're unsure:
+    - query_runbook(uncertain_svc) → confirms or denies from a second source
+    - query_monitoring(uncertain_svc) → check if it's actively receiving traffic from changed svc
+
+PHASE 4 — Submit:
+  - If budget ≤ 3: SUBMIT IMMEDIATELY with everything found so far
+  - Include ALL services with ANY evidence from ANY source
+  - Do NOT include the changed_service itself in affected_services
+  - Do NOT include services only mentioned as infrastructure (e.g. database_service, cache_service)
+    UNLESS they were returned by query_dependents
+
+TEXT PARSING RULES:
+  Service names always use underscore format: "auth_service", "cart_service", "payment_service"
+  Extract names from patterns like:
+    "- auth_service (team: platform)"
+    "→ cart_service (status: active)"
+    "* order_service"
+    "| payment_service | active |"
+  Ignore: service names with hyphens (fake), names not ending in _service/_backend/_gateway
+
+SCORING REMINDER:
+  F-beta(β=2) weights RECALL 4× over precision.
+  Submitting 2 extra false positives costs 0.02 points.
+  Missing 2 real services costs 0.08+ points.
+  → Be inclusive. Submit everything you have reasonable evidence for.
+
+CRITICAL:
+- result[] is ALWAYS [] during queries — only message text has information.
+- result[] is only populated AFTER submit (shows ground truth for postmortem).
+- Respond with ONLY a single valid JSON object. No explanation, no markdown fences.
+- The "affected_services" list must NOT include the changed service itself.
+- NEVER re-query a service you already queried (costs -0.05 penalty).
 """
 
 
@@ -187,7 +216,13 @@ async def run_episode(
 ) -> Dict[str, Any]:
     """Run one complete episode and return results dict."""
 
-    async with ServiceImpactEnv(base_url=env_url) as env:
+    # Connect to HF Space if SPACE_ID is set, otherwise use local ENV_BASE_URL
+    env_ctx = (
+        ServiceImpactEnv.from_hub(SPACE_ID)
+        if SPACE_ID
+        else ServiceImpactEnv(base_url=env_url)
+    )
+    async with env_ctx as env:
         # ── Reset ──────────────────────────────────────────────────────
         reset_result = await env.reset(seed=seed)
         obs = reset_result.observation
@@ -204,10 +239,11 @@ async def run_episode(
             {
                 "role": "user",
                 "content": (
-                    f"The service '{obs.changed_service}' has just been changed.\n"
-                    f"Find ALL downstream services that are affected by this change.\n"
+                    f"INCIDENT: Service '{obs.changed_service}' has a breaking change.\n"
                     f"Budget: {obs.queries_remaining} queries available.\n\n"
-                    f"Begin exploring now."
+                    f"INITIAL ALERT:\n{obs.message}\n\n"
+                    f"Start Phase 1 now: query_changelog → query_runbook → query_monitoring "
+                    f"(all free). Then BFS with query_dependents."
                 ),
             },
         ]
@@ -285,8 +321,12 @@ async def run_episode(
             # Feed back to model
             if not result.done:
                 feedback = (
-                    f"Result: {obs.message}\n"
-                    f"Queries remaining: {obs.queries_remaining}"
+                    f"[{action.action_type.upper()}] result:\n"
+                    f"{obs.message}\n\n"
+                    f"Queries remaining: {obs.queries_remaining}\n"
+                    f"Step reward: {obs.reward}\n"
+                    f"Tip: Extract all service_name patterns from the text above, "
+                    f"then decide the next action."
                 )
             else:
                 feedback = f"Episode ended. {obs.message}"
@@ -324,12 +364,14 @@ async def main() -> None:
     print("  service_impact_env — Baseline Inference Script")
     print(f"  Model     : {MODEL_NAME}")
     print(f"  API Base  : {API_BASE_URL}")
-    print(f"  Env URL   : {ENV_BASE_URL}")
+    print(f"  Env URL   : {SPACE_ID if SPACE_ID else ENV_BASE_URL}")
+    if SPACE_ID:
+        print(f"  HF Space  : {SPACE_ID}")
     print("=" * 65)
 
     if not API_KEY:
         raise SystemExit(
-            "ERROR: OPENAI_API_KEY (or HF_TOKEN) environment variable not set."
+            "ERROR: HF_TOKEN (or OPENAI_API_KEY) environment variable not set."
         )
 
     client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE_URL)

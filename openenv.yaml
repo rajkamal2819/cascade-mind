@@ -4,3 +4,34 @@ type: space
 runtime: fastapi
 app: server.app:app
 port: 8000
+
+description: >
+  Cross-service microservice impact analysis environment.
+  An AI agent acts as an SRE investigating a production incident, using noisy
+  LLM-generated tool outputs (PagerDuty alerts, service registries, runbooks,
+  Datadog monitoring) to identify all downstream services affected by a breaking
+  change. Reward = F-beta(β=2) of predicted vs ground-truth affected set.
+  First OpenEnv environment to use an LLM (Llama-3.1-8B) as the observation generator.
+
+tags:
+  - sre
+  - microservices
+  - llm
+  - reinforcement-learning
+  - incident-response
+  - networkx
+  - information-extraction
+
+env_vars:
+  HF_TOKEN:
+    description: HuggingFace token with Cerebras Inference Providers access (Llama-3.1-8B)
+    required: false
+    secret: true
+  LLM_SIMULATOR_ENABLED:
+    description: Set to "true" to enable LLM-generated observations, "false" for template fallbacks
+    required: false
+    default: "true"
+  LLM_CACHE_PATH:
+    description: Path to the JSON disk cache for LLM responses
+    required: false
+    default: /tmp/llm_sim_cache.json

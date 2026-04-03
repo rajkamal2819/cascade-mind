@@ -1,0 +1,44 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Git
+.git/
+.gitignore
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+*.swp
+*.swo
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Node (just in case)
+node_modules/
+
+# Local secrets / env files
+.env
+.env.*
+!.env.example
+
+# Docs
+docs/
+*.md
+!README.md
+
+# CI
+.github/
