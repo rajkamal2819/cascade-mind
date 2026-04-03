@@ -218,7 +218,13 @@ app.openapi_tags = [
 # POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
 # ---------------------------------------------------------------------------
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    """Redirect root to Swagger UI so the HF Space iframe shows docs instead of 404."""
+    return RedirectResponse(url="/docs")
 
 _MCP_TOOLS = [
     {
@@ -241,7 +247,7 @@ _MCP_TOOLS = [
     },
     {
         "name": "query_runbook",
-        "description": "Fetch internal Confluence-style runbook for a service. FREE — no budget cost.",
+        "description": "Fetch the internal runbook for a service: ownership, SLOs, and known failure modes.",
         "inputSchema": {
             "type": "object",
             "properties": {"service_name": {"type": "string"}},
@@ -250,7 +256,7 @@ _MCP_TOOLS = [
     },
     {
         "name": "query_changelog",
-        "description": "Fetch PR/changelog for the changed service. FREE — no budget cost.",
+        "description": "Fetch the recent PR and deployment changelog for the changed service.",
         "inputSchema": {
             "type": "object",
             "properties": {"service_name": {"type": "string"}},
@@ -259,7 +265,7 @@ _MCP_TOOLS = [
     },
     {
         "name": "query_monitoring",
-        "description": "Fetch Datadog-style monitoring snapshot for a service. FREE — no budget cost.",
+        "description": "Fetch a live monitoring snapshot for a service: latency, error rate, and dependency health.",
         "inputSchema": {
             "type": "object",
             "properties": {"service_name": {"type": "string"}},
@@ -267,15 +273,15 @@ _MCP_TOOLS = [
         },
     },
     {
-        "name": "submit_affected",
-        "description": "Submit final list of affected services. Ends episode, returns F-beta score.",
+        "name": "submit",
+        "description": "Submit the final list of affected services. Ends the episode and returns an F-beta(β=2) score against the ground truth.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "affected_services": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of all affected service names",
+                    "description": "All service names you believe are affected by the incident.",
                 }
             },
             "required": ["affected_services"],
@@ -344,8 +350,7 @@ async def mcp_rpc(request: Request):
                         "type": "text",
                         "text": (
                             f"Tool '{tool_name}' is available. "
-                            f"Execute via WebSocket at /ws using action_type='{tool_name}' "
-                            f"(or 'submit' for submit_affected)."
+                            f"Execute via WebSocket at /ws using action_type='{tool_name}'."
                         ),
                     }]
                 },

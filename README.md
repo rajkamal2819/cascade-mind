@@ -403,8 +403,45 @@ name: service_impact_env
 type: space
 runtime: fastapi
 app: server.app:app
-port: 8000
+port: 7860
 ```
+
+---
+
+## Running the Baseline Agent
+
+`inference.py` runs an LLM-driven agent across all three difficulty levels (easy / medium / hard)
+and prints per-task F-beta scores plus a JSON summary.
+
+**Against the live HuggingFace Space** (recommended):
+
+```bash
+export SPACE_ID="Rajkamal2819/cascade-mind"
+export HF_TOKEN=hf_...                          # your HuggingFace read token
+export API_BASE_URL=https://api.cerebras.ai/v1  # Cerebras via HF Inference Providers
+export MODEL_NAME=llama-3.3-70b                 # or any OpenAI-compatible model
+
+python inference.py
+```
+
+**Against a local server**:
+
+```bash
+# Terminal 1 — start the server
+export HF_TOKEN=hf_...
+export LLM_SIMULATOR_ENABLED=true
+uvicorn server.app:app --port 8000
+
+# Terminal 2 — run the agent
+export ENV_BASE_URL=http://localhost:8000
+export API_BASE_URL=https://api.openai.com/v1
+export MODEL_NAME=gpt-4o-mini
+export OPENAI_API_KEY=sk-...
+python inference.py
+```
+
+Expected output includes per-task scores and a final `JSON_RESULTS: {"mean_f1": ..., ...}` line
+that can be parsed by automated evaluation harnesses.
 
 ---
 
