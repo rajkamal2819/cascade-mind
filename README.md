@@ -1,3 +1,21 @@
+---
+title: Cascade Mind
+emoji: 🔬
+colorFrom: indigo
+colorTo: cyan
+sdk: docker
+app_port: 7860
+pinned: false
+tags:
+  - openenv
+  - sre
+  - microservices
+  - llm
+  - reinforcement-learning
+  - incident-response
+  - networkx
+---
+
 # 🔬 service_impact_env
 
 **Cross-service microservice impact analysis — with LLMs inside the environment**
