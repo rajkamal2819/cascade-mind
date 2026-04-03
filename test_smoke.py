@@ -199,8 +199,8 @@ for seed, label in [(0, "EASY"), (3, "MEDIUM"), (6, "HARD")]:
         f"result={sorted(final.result)}, expected={correct}",
     )
     check(
-        f"[{label}] perfect submit: reward > 0.9 (F-beta β=2 with full recall)",
-        final.reward is not None and final.reward > 0.9,
+        f"[{label}] perfect submit: reward == 1.0 (F-beta β=2, perfect recall & precision)",
+        final.reward is not None and final.reward == 1.0,
         f"reward={final.reward}",
     )
 

@@ -253,8 +253,31 @@ class ServiceImpactEnvironment(
         timeout_s: Optional[float] = None,
         **kwargs:  Any,
     ) -> ServiceImpactObservation:
-        """Execute one action and return the resulting observation."""
+        """Execute one action and return the resulting observation.
+
+        Reward semantics:
+          - Registry query (new service) : +0.05  — intermediate exploration signal
+          - Registry query (re-query)    : -0.05  — intermediate penalty signal
+          - Free action (runbook…)       : None   — no reward signal
+          - Budget exhaustion            : -0.4   — terminal, episode ends
+          - submit                       : F-beta(β=2) in [0.0, 1.0]  ← **evaluation metric**
+
+        Note: step rewards (+0.05 / -0.05) are pedagogical signals only and are NOT
+        summed into the terminal score. The reward returned on the 'submit' action
+        is the definitive F-beta(β=2) score used for evaluation and leaderboard ranking.
+        """
         self._state.step_count += 1
+
+        # Guard: reset() not called yet
+        if not self._changed_service:
+            return ServiceImpactObservation(
+                changed_service="",
+                result=[],
+                queries_remaining=0,
+                message="No active episode. Call reset() to start a new episode.",
+                done=False,
+                reward=None,
+            )
 
         # Guard: episode already over
         if self._episode_ended:

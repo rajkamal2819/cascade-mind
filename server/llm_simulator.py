@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import random
+import threading
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -69,6 +70,7 @@ class SimulatorCache:
     def __init__(self, cache_path: str = "/tmp/llm_sim_cache.json"):
         self._memory: Dict[str, str] = {}
         self._cache_path = cache_path
+        self._lock = threading.Lock()  # guards concurrent writes from parallel sessions
         self._load()
 
     def _key(self, seed: int, kind: str, svc: str) -> str:
@@ -79,8 +81,9 @@ class SimulatorCache:
         return self._memory.get(self._key(seed, kind, svc))
 
     def set(self, seed: int, kind: str, svc: str, val: str) -> None:
-        self._memory[self._key(seed, kind, svc)] = val
-        self._persist()
+        with self._lock:
+            self._memory[self._key(seed, kind, svc)] = val
+            self._persist()
 
     def __len__(self) -> int:
         return len(self._memory)
