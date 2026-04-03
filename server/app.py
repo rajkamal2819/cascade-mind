@@ -47,6 +47,174 @@ app = create_app(
 )
 
 # ---------------------------------------------------------------------------
+# Override generic openenv-core metadata with cascade-mind–specific docs.
+# FastAPI renders full Markdown in Swagger UI / ReDoc.
+# ---------------------------------------------------------------------------
+app.title   = "cascade-mind — Service Impact Analysis"
+app.version = "0.2.0"
+app.description = """
+## What is this?
+
+**cascade-mind** is an [OpenEnv](https://github.com/meta-pytorch/OpenEnv)-compatible
+reinforcement-learning environment for the **Meta × PyTorch OpenEnv Hackathon**.
+
+An agent acts as an SRE on-call engineer: given an **incident alert** about a changed
+microservice, it must identify every downstream service that will be affected — using
+only the same noisy, LLM-generated tool output a real engineer would see.
+
+The ground truth is a seeded `networkx` dependency graph of **15 microservices**
+across 3 teams (commerce / platform / data).  All tool output (PagerDuty alerts,
+registry lookups, runbooks, monitoring snapshots) is generated in real-time by
+**Llama-3.1-8B-Instruct via Cerebras**, with calibrated noise on medium/hard difficulty.
+
+---
+
+## Action Space
+
+| `action_type` | Cost | Description |
+|---|---|---|
+| `query_dependents` | −1 budget | Which services call this service? |
+| `query_dependencies` | −1 budget | Which services does this service depend on? |
+| `query_runbook` | **FREE** | Confluence-style runbook for a service |
+| `query_changelog` | **FREE** | PR/changelog for the incident's changed service |
+| `query_monitoring` | **FREE** | Datadog-style monitoring snapshot for a service |
+| `submit_affected` | ends episode | Submit your final list of affected services |
+
+**Query budget: 10** — once exhausted, only free actions and `submit_affected` remain.
+Re-querying the same service costs −0.05 reward as a penalty.
+
+---
+
+## Scoring
+
+$$
+\\text{reward} = F_{\\beta=2}(\\text{predicted}, \\text{ground truth}) - 0.1 \\times |\\text{over-claims}|
+$$
+
+- $F_{\\beta=2}$ weights **recall twice as much as precision** (missing an affected service
+  is worse than a false positive)
+- Score ∈ **[0.0, 1.0]**
+- Difficulty levels: `easy` (no noise) · `medium` (±1 service in registry output) ·
+  `hard` (±2 services in registry output)
+
+---
+
+## Primary Protocol — WebSocket `/ws`
+
+The WebSocket session is **stateful**: `reset` and all `step` calls share a single
+episode context.  HTTP `/reset` + `/step` are also available but each HTTP call is
+**stateless** — use WebSocket for full episodes.
+
+```python
+import asyncio, json, websockets
+
+async def run_episode():
+    async with websockets.connect(
+        "wss://rajkamal2819-cascade-mind.hf.space/ws"
+    ) as ws:
+
+        # 1 — start episode
+        await ws.send(json.dumps({"type": "reset", "data": {"seed": 42}}))
+        obs = json.loads(await ws.recv())
+        print("ALERT:", obs["data"]["message"])
+
+        # 2 — free intel: read changelog
+        await ws.send(json.dumps({
+            "type": "step",
+            "data": {"action_type": "query_changelog", "service_name": "catalog_service"}
+        }))
+        print(json.loads(await ws.recv())["data"]["message"])
+
+        # 3 — query dependents (costs 1 budget)
+        await ws.send(json.dumps({
+            "type": "step",
+            "data": {"action_type": "query_dependents", "service_name": "catalog_service"}
+        }))
+        print(json.loads(await ws.recv())["data"]["message"])
+
+        # 4 — submit answer
+        await ws.send(json.dumps({
+            "type": "step",
+            "data": {
+                "action_type": "submit_affected",
+                "affected_services": ["api_gateway", "cart_service", "web_backend"]
+            }
+        }))
+        result = json.loads(await ws.recv())
+        print("Score:", result["data"]["reward"])
+
+asyncio.run(run_episode())
+```
+
+---
+
+## Quick-start with the Python client
+
+```bash
+pip install cascade-mind   # or: pip install git+https://github.com/rajkamal2819/cascade-mind
+```
+
+```python
+from cascade_mind import ServiceImpactEnv
+
+async with ServiceImpactEnv(base_url="https://rajkamal2819-cascade-mind.hf.space") as env:
+    obs, _ = await env.reset(seed=0)
+    print(obs.message)   # → PagerDuty-style incident alert
+
+    obs, reward, done, _, _ = await env.step(
+        {"action_type": "query_dependents", "service_name": "catalog_service"}
+    )
+    print(obs.message)   # → LLM-generated registry output (possibly noisy)
+```
+
+---
+
+## Environment Variables (Space secrets)
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `HF_TOKEN` | ✅ | — | HuggingFace token for Llama-3.1-8B via Cerebras |
+| `LLM_SIMULATOR_ENABLED` | — | `true` | Set `false` to use fast template fallbacks |
+| `LLM_CACHE_PATH` | — | `/app/llm_sim_cache.json` | Path to pre-warmed response cache |
+
+---
+
+## Links
+
+- 📦 **GitHub**: [rajkamal2819/cascade-mind](https://github.com/rajkamal2819/cascade-mind)
+- 🤗 **HF Space**: [Rajkamal2819/cascade-mind](https://huggingface.co/spaces/Rajkamal2819/cascade-mind)
+- 📖 **OpenEnv docs**: [meta-pytorch/OpenEnv](https://github.com/meta-pytorch/OpenEnv)
+"""
+
+app.openapi_tags = [
+    {
+        "name": "Environment Control",
+        "description": "Start a new episode (`/reset`) or advance it by one step (`/step`). "
+                       "**Prefer the WebSocket at `/ws`** for full episodes — HTTP endpoints "
+                       "do not share session state between separate requests.",
+    },
+    {
+        "name": "State Management",
+        "description": "Inspect the current episode state: changed service, budget remaining, "
+                       "services queried so far, ground-truth graph (revealed post-submit).",
+    },
+    {
+        "name": "Environment Info",
+        "description": "Environment name, version, action/observation schemas, difficulty levels.",
+    },
+    {
+        "name": "Schema",
+        "description": "JSON Schema definitions for `ServiceImpactAction`, "
+                       "`ServiceImpactObservation`, and `ServiceImpactState`.",
+    },
+    {
+        "name": "Health",
+        "description": "Liveness probe. Returns `{\"status\": \"healthy\"}` when the server "
+                       "and LLM simulator are ready.",
+    },
+]
+
+# ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) endpoint — RFC 003 compliance
 # Exposes the environment as a tool-callable MCP server.
 # GET  /mcp        → tools manifest (list all available tools)
