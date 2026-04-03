@@ -20,7 +20,7 @@ tags:
 
 An AI agent plays the role of an on-call SRE engineer. A microservice just changed — the agent must trace the blast radius and identify every downstream service that will be impacted, using the same noisy, LLM-generated tool output a real engineer would see.
 
-Every observation (incident alerts, registry lookups, runbooks, monitoring snapshots) is generated live by **Llama-3.1-8B via Cerebras**. The ground truth is a seeded `networkx` dependency graph of 15 microservices — the agent never sees it directly.
+Every observation (incident alerts, registry lookups, runbooks, monitoring snapshots) is generated live by **Llama-3.1-8B via Cerebras**. The ground truth is a seeded `networkx` dependency graph of 30 microservices — the agent never sees it directly.
 
 📖 **[Full API docs + WebSocket example](https://rajkamal2819-cascade-mind.hf.space/docs)**
 
@@ -104,9 +104,9 @@ async with ServiceImpactEnv(base_url="https://rajkamal2819-cascade-mind.hf.space
 Scored with **F-beta (β=2)** against the ground-truth dependency graph — recall is weighted twice as heavily as precision, because missing a real affected service causes more damage than a false alarm.
 
 Difficulty levels:
-- `easy` — clean registry output, 5 query budget
-- `medium` — one service added/removed in registry output, 8 query budget  
-- `hard` — two services added/removed, 12 query budget
+- `easy` — clean registry output, 15 query budget
+- `medium` — one service added/removed in registry output, 12 query budget  
+- `hard` — two services added/removed, 10 query budget
 
 ---
 
@@ -159,7 +159,7 @@ The script runs all three tasks (easy / medium / hard) against the live Space an
 │                           AGENT LAYER                               │
 │   Sees only: observation.message (LLM text)                         │
 │   Never sees: result[] during queries (always [])   ← Option A      │
-│   Budget: 5–12 queries depending on difficulty                      │
+│   Budget: 10–15 queries depending on difficulty                      │
 │   Goal: submit the correct set of affected services                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -191,7 +191,7 @@ The script runs all three tasks (easy / medium / hard) against the live Space an
 | `query_monitoring` | **Free** | Read Datadog-style monitoring data for `X` |
 | `submit` | Terminal | Submit final list of predicted affected services |
 
-Budget varies by difficulty: **easy=5, medium=8, hard=12 queries**.
+Budget varies by difficulty: **easy=15, medium=12, hard=10 queries**.
 Free actions (runbook, changelog, monitoring) do not consume budget.
 
 ### Action Schema
@@ -262,9 +262,9 @@ The `changed_service` is selected dynamically by **betweenness-centrality**, bin
 
 | Difficulty | Affected services | Queries budget |
 |---|---|---|
-| Easy | 1–6 | 5 |
-| Medium | 6–13 | 8 |
-| Hard | 13+ | 12 |
+| Easy | 1–6 | 15 |
+| Medium | 6–13 | 12 |
+| Hard | 13+ | 10 |
 
 Seed cycling: `seed % 3` selects the difficulty tier, ensuring balanced evaluation.
 
