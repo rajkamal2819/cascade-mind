@@ -59,14 +59,16 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Configuration — matches the required inference.py variable contract:
+#   HF_TOKEN     : no default (must be set by caller)
+#   API_BASE_URL : has default  (can be overridden)
+#   MODEL_NAME   : has default  (can be overridden)
 # ---------------------------------------------------------------------------
-# HF_TOKEN is the primary key; OPENAI_API_KEY accepted as fallback
-API_KEY      = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY", "")
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME   = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+HF_TOKEN     = os.getenv("HF_TOKEN")                              # no default — required
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "gpt-4o-mini")
 # ENV_BASE_URL defaults to the live HF Space so `python inference.py` works out-of-the-box
-ENV_BASE_URL = os.environ.get("ENV_BASE_URL", "https://rajkamal2819-cascade-mind.hf.space")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "https://rajkamal2819-cascade-mind.hf.space")
 
 # Task seeds: 0 → easy, 1 → medium, 2 → hard  (seed % 3 determines difficulty)
 TASK_SEEDS = {
@@ -367,12 +369,12 @@ async def main() -> None:
     print(f"  Env URL   : {ENV_BASE_URL}")
     print("=" * 65)
 
-    if not API_KEY:
+    if not HF_TOKEN:
         raise SystemExit(
-            "ERROR: HF_TOKEN (or OPENAI_API_KEY) environment variable not set."
+            "ERROR: HF_TOKEN environment variable not set."
         )
 
-    client = AsyncOpenAI(api_key=API_KEY, base_url=API_BASE_URL)
+    client = AsyncOpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
 
     results: List[Dict[str, Any]] = []
 
