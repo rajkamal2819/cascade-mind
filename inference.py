@@ -229,6 +229,9 @@ async def run_episode(
         reset_result = await env.reset(seed=seed)
         obs = reset_result.observation
 
+        # ── Structured output: START marker (required by validator) ────
+        print(f"[START] task={task_name}", flush=True)
+
         if verbose:
             print(f"\n{'─'*65}")
             print(f"  TASK: {task_name.upper():<8}  |  seed={seed}")
@@ -314,6 +317,10 @@ async def run_episode(
             if action.action_type != "submit":
                 queries_used += 1
 
+            # ── Structured output: STEP marker ────────────────────────
+            _step_reward = obs.reward if obs.reward is not None else 0.0
+            print(f"[STEP] step={steps_taken} reward={_step_reward}", flush=True)
+
             if verbose:
                 msg_preview = obs.message[:150]
                 print(f"  [Step {step_num+1}] Env   → {msg_preview}")
@@ -337,6 +344,9 @@ async def run_episode(
 
         elapsed = time.time() - start_time
         reward = result.reward if result.reward is not None else 0.0
+
+        # ── Structured output: END marker (required by validator) ─────
+        print(f"[END] task={task_name} score={reward} steps={steps_taken}", flush=True)
 
         if verbose:
             print(f"\n  ┌─ RESULT {'─'*50}")
