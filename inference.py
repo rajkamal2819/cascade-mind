@@ -28,7 +28,6 @@ Usage against a local server:
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -38,12 +37,7 @@ from typing import Any, Dict, List, Optional
 # ---------------------------------------------------------------------------
 # Imports — dual-path for in-repo vs installed package
 # ---------------------------------------------------------------------------
-try:
-    from openai import AsyncOpenAI
-except ImportError:
-    raise SystemExit(
-        "openai package not found. Install with: pip install openai"
-    )
+from openai import OpenAI
 
 try:
     from service_impact_env import ServiceImpactAction, ServiceImpactEnv
@@ -215,8 +209,8 @@ def format_score_bar(score: float, width: int = 30) -> str:
 # Single episode runner
 # ---------------------------------------------------------------------------
 
-async def run_episode(
-    client: AsyncOpenAI,
+def run_episode(
+    client: OpenAI,
     env_url: str,
     seed: int,
     task_name: str,
@@ -224,9 +218,9 @@ async def run_episode(
 ) -> Dict[str, Any]:
     """Run one complete episode and return results dict."""
 
-    async with ServiceImpactEnv(base_url=env_url) as env:
+    with ServiceImpactEnv(base_url=env_url).sync() as env:
         # ── Reset ──────────────────────────────────────────────────────
-        reset_result = await env.reset(seed=seed)
+        reset_result = env.reset(seed=seed)
         obs = reset_result.observation
 
         # ── Structured output: START marker (required by validator) ────
@@ -266,7 +260,7 @@ async def run_episode(
 
             # LLM call
             try:
-                completion = await client.chat.completions.create(
+                completion = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=messages,
                     temperature=0.0,
@@ -310,7 +304,7 @@ async def run_episode(
                 continue
 
             # Execute in environment
-            result = await env.step(action)
+            result = env.step(action)
             obs = result.observation
             steps_taken += 1
 
@@ -371,7 +365,7 @@ async def run_episode(
 # Main
 # ---------------------------------------------------------------------------
 
-async def main() -> None:
+def main() -> None:
     print("=" * 65)
     print("  service_impact_env — Baseline Inference Script")
     print(f"  Model     : {MODEL_NAME}")
@@ -384,12 +378,12 @@ async def main() -> None:
             "ERROR: HF_TOKEN environment variable not set."
         )
 
-    client = AsyncOpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
+    client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
 
     results: List[Dict[str, Any]] = []
 
     for task_name, seed in TASK_SEEDS.items():
-        result = await run_episode(
+        result = run_episode(
             client=client,
             env_url=ENV_BASE_URL,
             seed=seed,
@@ -423,4 +417,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
