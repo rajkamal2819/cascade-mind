@@ -39,5 +39,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     || exit 1
 
 # Default command — openenv push may override this to enable the web interface
-ENV ENABLE_WEB_INTERFACE=true
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]
