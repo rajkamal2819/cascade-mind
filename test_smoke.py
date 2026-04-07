@@ -199,8 +199,8 @@ for seed, label in [(0, "EASY"), (3, "MEDIUM"), (6, "HARD")]:
         f"result={sorted(final.result)}, expected={correct}",
     )
     check(
-        f"[{label}] perfect submit: reward == 1.0 (F-beta β=2, perfect recall & precision)",
-        final.reward is not None and final.reward == 1.0,
+        f"[{label}] perfect submit: reward == 0.999 (F-beta β=2, clamped to open interval)",
+        final.reward is not None and final.reward == 0.999,
         f"reward={final.reward}",
     )
 
@@ -208,8 +208,8 @@ for seed, label in [(0, "EASY"), (3, "MEDIUM"), (6, "HARD")]:
     env.reset(seed=seed)
     bad = env.step(ServiceImpactAction(action_type="submit", affected_services=[]))
     check(
-        f"[{label}] empty submit: reward=0.0",
-        bad.reward == 0.0,
+        f"[{label}] empty submit: reward=0.001 (clamped to open interval)",
+        bad.reward == 0.001,
         f"reward={bad.reward}",
     )
 
