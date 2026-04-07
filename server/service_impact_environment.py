@@ -478,7 +478,9 @@ class ServiceImpactEnvironment(
             oversubmit_frac = min(1.0, (n_pred / n_total - 0.6) / 0.4)
             fbeta = max(0.0, fbeta - 0.3 * oversubmit_frac)
 
-        reward = round(fbeta, 4)
+        # Clamp to open interval (0, 1) — the Phase-2 validator rejects
+        # scores that are exactly 0.0 or 1.0.
+        reward = round(max(0.001, min(0.999, fbeta)), 4)
 
         self._state.predicted_affected = sorted(predicted)
         self._state.correct_affected   = sorted(correct)   # reveal ground truth

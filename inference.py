@@ -337,7 +337,9 @@ def run_episode(
             messages.append({"role": "user", "content": feedback})
 
         elapsed = time.time() - start_time
-        reward = result.reward if result.reward is not None else 0.0
+        raw_reward = result.reward if result.reward is not None else 0.0
+        # Clamp to open interval (0, 1) — validator rejects 0.0 and 1.0
+        reward = max(0.001, min(0.999, raw_reward))
 
         # ── Structured output: END marker (required by validator) ─────
         print(f"[END] task={task_name} score={reward} steps={steps_taken}", flush=True)
