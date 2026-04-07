@@ -1,51 +1,32 @@
-# Root Dockerfile — used by HuggingFace Spaces Docker deployment
-# Build context is the repo root (all source files available).
-# Delegates to the same logic as server/Dockerfile.
+# Root Dockerfile — used by the Phase-2 validator (from GitHub) and
+# HuggingFace Spaces (via `openenv push`).
+#
+# Base image: the hackathon-provided openenv-base hosted on ghcr.io
+# (GitHub Container Registry), which the validator can always reach.
+# DO NOT switch to docker.io images — the validator cannot pull from Docker Hub.
 
-ARG BASE_IMAGE=python:3.11-slim
-FROM ${BASE_IMAGE} AS builder
-
-# HF_TOKEN passed at build time to pre-warm LLM cache (not stored in final image)
-ARG HF_TOKEN=""
+FROM ghcr.io/meta-pytorch/openenv-base:latest
 
 WORKDIR /app
 
+# System utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy full repo into /app
+# Copy full repo
 COPY . /app
 
-# Install from requirements file (keeps dependency list in one place)
+# Install Python dependencies from the single source of truth
 RUN pip install --no-cache-dir -r server/requirements.txt
 
-# Install the project itself (for package imports)
-RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache-dir -e . 2>/dev/null || true
+# Install the project package itself (best-effort)
+RUN pip install --no-cache-dir -e . 2>/dev/null || true
 
-# Pre-warm LLM cache at build time if HF_TOKEN provided
-RUN if [ -n "${HF_TOKEN}" ]; then \
-        echo "Pre-warming LLM cache for seeds 0..99..." && \
-        HF_TOKEN=${HF_TOKEN} \
-        PYTHONPATH=/app \
-        python -m server.preload_cache \
-            --seeds 100 \
-            --output /app/llm_sim_cache.json && \
-        echo "LLM cache pre-warm complete."; \
-    else \
-        echo "HF_TOKEN not provided — skipping cache pre-warm."; \
-        echo "{}" > /app/llm_sim_cache.json; \
-    fi
+# Empty LLM cache placeholder (runtime fills via HF_TOKEN secret)
+RUN echo "{}" > /app/llm_sim_cache.json
 
-# ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM ${BASE_IMAGE}
-
-WORKDIR /app
-
-COPY --from=builder /usr/local/lib /usr/local/lib
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /app /app
-
+# Environment
 ENV PYTHONPATH="/app"
 ENV PYTHONUNBUFFERED=1
 ENV LLM_SIMULATOR_ENABLED=true
@@ -57,5 +38,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')" \
     || exit 1
 
-# HuggingFace Spaces uses port 7860 by default
+# Default command — openenv push may override this to enable the web interface
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]
