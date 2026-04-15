@@ -77,6 +77,38 @@ try:
 except ImportError:
     from server.llm_simulator import LLMSimulator, SimulatorCache  # type: ignore
 
+try:
+    from .trajectory_logger import TrajectoryLogger
+except ImportError:
+    try:
+        from server.trajectory_logger import TrajectoryLogger  # type: ignore
+    except ImportError:
+        TrajectoryLogger = None  # type: ignore
+
+try:
+    from .reward_orchestrator import RewardOrchestrator
+except ImportError:
+    try:
+        from server.reward_orchestrator import RewardOrchestrator  # type: ignore
+    except ImportError:
+        RewardOrchestrator = None  # type: ignore
+
+try:
+    from .mutation_engine import MutationEngine
+except ImportError:
+    try:
+        from server.mutation_engine import MutationEngine  # type: ignore
+    except ImportError:
+        MutationEngine = None  # type: ignore
+
+try:
+    from .curriculum_scheduler import CurriculumScheduler
+except ImportError:
+    try:
+        from server.curriculum_scheduler import CurriculumScheduler  # type: ignore
+    except ImportError:
+        CurriculumScheduler = None  # type: ignore
+
 import networkx as nx
 
 
@@ -142,6 +174,32 @@ class ServiceImpactEnvironment(
             enabled=llm_enabled,
         )
 
+        # Free-action caps (per episode)
+        self.FREE_ACTION_CAPS = {"query_runbook": 2, "query_changelog": 2, "query_monitoring": 3}
+
+        # Trajectory logger (v2: logs every step for auditing)
+        trajectory_dir = os.environ.get("TRAJECTORY_DIR", "/tmp/cascade_trajectories")
+        if TrajectoryLogger is not None:
+            self._trajectory_logger = TrajectoryLogger(trajectory_dir)
+        else:
+            self._trajectory_logger = None
+
+        # Reward orchestrator (v2: rotating reward profiles)
+        if RewardOrchestrator is not None:
+            self._reward_orchestrator = RewardOrchestrator()
+        else:
+            self._reward_orchestrator = None
+        self._reward_profile = None
+        self._mutation_engine = None  # initialized per-episode in reset()
+        self._pending_mutation_alert = ""  # set each step by mutation check
+
+        # Curriculum scheduler (v2: difficulty-adaptive parameters)
+        if CurriculumScheduler is not None:
+            self._curriculum = CurriculumScheduler()
+        else:
+            self._curriculum = None
+        self._curriculum_config = None  # set per-episode in reset()
+
         # Per-episode mutable state (initialised by reset())
         self._graph:            nx.DiGraph  = nx.DiGraph()
         self._all_services:     List[str]   = []
@@ -154,6 +212,7 @@ class ServiceImpactEnvironment(
         self._episode_ended:    bool        = False
         self._current_seed:     int         = 0
         self._incident_context              = None
+        self._free_action_uses: dict        = {"query_runbook": 0, "query_changelog": 0, "query_monitoring": 0}
         self._state = ServiceImpactState()
 
     # ── OpenEnv required interface ────────────────────────────────────────
@@ -184,13 +243,53 @@ class ServiceImpactEnvironment(
         self._task_difficulty  = scenario["difficulty"]
         self._changed_service  = scenario["changed_service"]
         self._max_queries      = scenario["max_queries"]
+        # Store initial affected set (may change via mutations; recomputed at submit)
         self._correct_affected = get_affected_services(self._graph, self._changed_service)
+
+        # MutationEngine (v2: mid-episode topology changes)
+        if MutationEngine is not None:
+            self._mutation_engine = MutationEngine(
+                seed=seed,
+                difficulty=self._task_difficulty,
+            )
+        else:
+            self._mutation_engine = None
+
+        # Curriculum config (v2: difficulty-adaptive parameters)
+        if self._curriculum is not None:
+            self._curriculum_config = self._curriculum.get_config(self._task_difficulty)
+            # Override free-action caps from curriculum
+            self.FREE_ACTION_CAPS = {
+                "query_runbook":    self._curriculum_config.runbook_cap,
+                "query_changelog":  self._curriculum_config.changelog_cap,
+                "query_monitoring": self._curriculum_config.monitoring_cap,
+            }
+        else:
+            self._curriculum_config = None
+            self.FREE_ACTION_CAPS = {"query_runbook": 2, "query_changelog": 2, "query_monitoring": 3}
 
         # Reset tracking
         self._queries_used    = 0
         self._queried_services = set()
         self._episode_ended   = False
         self._incident_context = None
+        self._free_action_uses = {"query_runbook": 0, "query_changelog": 0, "query_monitoring": 0}
+
+        # Log reset event
+        if self._trajectory_logger:
+            self._trajectory_logger.log_reset(
+                seed=seed,
+                changed_service=self._changed_service,
+                difficulty=self._task_difficulty,
+                max_queries=self._max_queries,
+            )
+
+        # Select reward profile for this episode (v2: rotating profiles)
+        if self._reward_orchestrator:
+            self._reward_profile = self._reward_orchestrator.get_profile(seed)
+        else:
+            self._reward_profile = None
+        profile_name = self._reward_profile.name if self._reward_profile else "recall_heavy"
 
         self._state = ServiceImpactState(
             episode_id=episode_id or str(uuid4()),
@@ -202,6 +301,7 @@ class ServiceImpactEnvironment(
             predicted_affected=[],
             task_difficulty=self._task_difficulty,
             episode_ended=False,
+            reward_profile=profile_name,
         )
 
         # Generate LLM incident context (cached per seed — fast on cache hit)
@@ -227,6 +327,21 @@ class ServiceImpactEnvironment(
                 pass   # graceful degradation — episode continues without LLM context
 
         n_total = len(self._all_services)
+        profile_desc = ""
+        if self._reward_profile:
+            profile_desc = (
+                f"\nReward profile: {self._reward_profile.name} — "
+                f"{self._reward_profile.description}"
+            )
+
+        # Curriculum hints (v2: difficulty-adaptive guidance)
+        curriculum_hint = ""
+        if self._curriculum is not None and self._curriculum_config is not None:
+            n_affected = len(self._correct_affected)
+            curriculum_hint = "\n" + self._curriculum.get_hint_text(
+                self._curriculum_config, self._changed_service, n_affected
+            )
+
         return ServiceImpactObservation(
             changed_service=self._changed_service,
             result=[],
@@ -238,10 +353,13 @@ class ServiceImpactEnvironment(
                 f"{incident_block}"
                 f"System has {n_total} total services. "
                 f"Query budget: {self._max_queries}.\n"
-                f"Hint: {scenario['hint']}\n"
+                f"Hint: {scenario['hint']}"
+                f"{curriculum_hint}\n"
                 f"Budget actions: query_dependents, query_dependencies. "
                 f"Free actions: query_runbook, query_changelog, query_monitoring. "
+                f"Hypothesis check: submit_hypothesis (costs 1 query). "
                 f"Finish with: submit."
+                f"{profile_desc}"
             ),
             done=False,
             reward=None,
@@ -290,13 +408,36 @@ class ServiceImpactEnvironment(
                 reward=None,
             )
 
+        # ── MUTATION CHECK (v2: mid-episode topology changes) ─────────────
+        self._pending_mutation_alert = ""
+        if self._mutation_engine:
+            _, event = self._mutation_engine.maybe_mutate(
+                self._graph, self._state.step_count
+            )
+            if event:
+                # Recompute ground truth from mutated graph
+                self._correct_affected = get_affected_services(
+                    self._graph, self._changed_service
+                )
+                self._pending_mutation_alert = f"\n\n{event.description}\n"
+
         # ── SUBMIT ────────────────────────────────────────────────────────
         if action.action_type == "submit":
             return self._handle_submit(action)
 
+        # ── HYPOTHESIS CHECK (non-terminal partial score) ─────────────────
+        if action.action_type == "submit_hypothesis":
+            return self._handle_hypothesis(action)
+
         # ── FREE ACTIONS (no budget deduction) ────────────────────────────
         if action.action_type in ("query_runbook", "query_changelog", "query_monitoring"):
             return self._handle_free_action(action)
+
+        # ── NEW FREE TOOLS (v2: topology diff + service health) ───────────
+        if action.action_type == "query_topology_diff":
+            return self._handle_topology_diff(action)
+        if action.action_type == "query_service_health":
+            return self._handle_service_health(action)
 
         # ── BUDGET GUARD ──────────────────────────────────────────────────
         if self._queries_used >= self._max_queries:
@@ -366,16 +507,31 @@ class ServiceImpactEnvironment(
             if done else ""
         )
 
+        obs_message = (
+            f"[{action.action_type.upper()}] {direction_lbl}\n"
+            f"{llm_text}"
+            f"{penalty_note}"
+            f"\nQueries remaining: {queries_remaining}{budget_note}"
+            f"{self._pending_mutation_alert}"
+        )
+
+        # Log step to trajectory
+        if self._trajectory_logger:
+            self._trajectory_logger.log_step(
+                seed=self._current_seed,
+                step_num=self._state.step_count,
+                action_type=action.action_type,
+                service_name=svc,
+                reward=-0.4 if done else step_reward,
+                queries_remaining=queries_remaining,
+                message=obs_message,
+            )
+
         return ServiceImpactObservation(
             changed_service=self._changed_service,
             result=[],          # Option A: never expose graph structure during queries
             queries_remaining=queries_remaining,
-            message=(
-                f"[{action.action_type.upper()}] {direction_lbl}\n"
-                f"{llm_text}"
-                f"{penalty_note}"
-                f"\nQueries remaining: {queries_remaining}{budget_note}"
-            ),
+            message=obs_message,
             done=done,
             reward=-0.4 if done else step_reward,
         )
@@ -389,9 +545,56 @@ class ServiceImpactEnvironment(
     def _handle_free_action(
         self, action: ServiceImpactAction
     ) -> ServiceImpactObservation:
-        """Handle free actions: query_runbook, query_changelog, query_monitoring."""
+        """Handle free actions: query_runbook, query_changelog, query_monitoring.
+
+        Free-action caps (v2): Each free action type has a per-episode usage limit.
+        Exceeding the cap deducts 0.5 from the query budget instead of being free.
+        Caps: runbook=2, changelog=2, monitoring=3.
+        """
         svc  = action.service_name or self._changed_service
         meta = SERVICE_METADATA.get(svc, {})
+
+        # ── Free-action cap enforcement ───────────────────────────────
+        action_key = action.action_type
+        cap = self.FREE_ACTION_CAPS.get(action_key, 99)
+        self._free_action_uses[action_key] = self._free_action_uses.get(action_key, 0) + 1
+        uses = self._free_action_uses[action_key]
+        is_over_cap = uses > cap
+
+        budget_penalty = 0
+        cap_note = ""
+        if is_over_cap:
+            # Overage costs 0.5 from query budget (fractional — rounded up on next budget query)
+            budget_penalty = 1  # deduct 1 full query as penalty
+            self._queries_used += budget_penalty
+            self._state.queries_used = self._queries_used
+            cap_note = (
+                f"\n⚠️  {action_key} cap exceeded ({uses}/{cap} uses). "
+                f"Budget penalty: -1 query. Queries remaining: {self._max_queries - self._queries_used}."
+            )
+            # Check if budget is now exhausted
+            if self._queries_used >= self._max_queries:
+                self._episode_ended = True
+                self._state.episode_ended = True
+                return ServiceImpactObservation(
+                    changed_service=self._changed_service,
+                    result=[],
+                    queries_remaining=0,
+                    message=(
+                        f"Free-action cap exceeded and query budget exhausted. "
+                        f"Episode ended — reward = -0.4."
+                    ),
+                    done=True,
+                    reward=-0.4,
+                )
+
+        # Update state counters
+        if action_key == "query_runbook":
+            self._state.runbook_uses = uses
+        elif action_key == "query_changelog":
+            self._state.changelog_uses = uses
+        elif action_key == "query_monitoring":
+            self._state.monitoring_uses = uses
 
         try:
             if action.action_type == "query_runbook":
@@ -432,32 +635,134 @@ class ServiceImpactEnvironment(
             content = f"[{action.action_type} unavailable: {exc}]"
             label   = action.action_type.upper()
 
+        remaining = self._max_queries - self._queries_used
+        budget_msg = "(free action — budget unchanged)" if not is_over_cap else "(cap exceeded — budget deducted)"
         return ServiceImpactObservation(
             changed_service=self._changed_service,
             result=[],
-            queries_remaining=self._max_queries - self._queries_used,
+            queries_remaining=remaining,
             message=(
                 f"[{label}] {svc}\n"
                 f"{content}\n"
-                f"Queries remaining: {self._max_queries - self._queries_used} "
-                f"(free action — budget unchanged)"
+                f"Queries remaining: {remaining} {budget_msg}"
+                f"{cap_note}"
+                f"{self._pending_mutation_alert}"
             ),
             done=False,
             reward=None,
         )
 
-    def _handle_submit(
+    def _handle_topology_diff(
         self, action: ServiceImpactAction
     ) -> ServiceImpactObservation:
-        """Score the agent's prediction with F-beta (β=2) and end the episode."""
-        self._episode_ended       = True
-        self._state.episode_ended = True
+        """Show topology changes since episode start (FREE action).
+
+        Reports mutations that have occurred during this episode.
+        Useful for agents to understand how the graph has changed.
+        """
+        mutations = []
+        if self._mutation_engine:
+            mutations = self._mutation_engine.mutations_applied
+
+        if not mutations:
+            content = (
+                "[TOPOLOGY DIFF] No topology changes detected since episode start.\n"
+                "The service dependency graph remains in its original state."
+            )
+        else:
+            lines = [f"[TOPOLOGY DIFF] {len(mutations)} mutation(s) detected this episode:"]
+            for i, m in enumerate(mutations, 1):
+                edge_desc = ", ".join(f"{u} → {v}" for u, v in m.edges) if m.edges else "no edges changed"
+                lines.append(f"  {i}. Step {m.step_num}: {m.mutation_type} — {edge_desc}")
+            lines.append("\nThe blast radius may have changed. Consider re-investigating.")
+            content = "\n".join(lines)
+
+        remaining = self._max_queries - self._queries_used
+        return ServiceImpactObservation(
+            changed_service=self._changed_service,
+            result=[],
+            queries_remaining=remaining,
+            message=f"{content}\nQueries remaining: {remaining} (free action — budget unchanged)",
+            done=False,
+            reward=None,
+        )
+
+    def _handle_service_health(
+        self, action: ServiceImpactAction
+    ) -> ServiceImpactObservation:
+        """Provide a health summary for a service (FREE action).
+
+        Returns aggregated info: tier, team, in/out degree, whether it's
+        in the current investigation scope.
+        """
+        svc = action.service_name or self._changed_service
+        meta = SERVICE_METADATA.get(svc, {})
+
+        if svc not in self._graph:
+            remaining = self._max_queries - self._queries_used
+            return ServiceImpactObservation(
+                changed_service=self._changed_service,
+                result=[],
+                queries_remaining=remaining,
+                message=f"[SERVICE HEALTH] Unknown service '{svc}'.\nQueries remaining: {remaining}",
+                done=False,
+                reward=None,
+            )
+
+        in_degree = self._graph.in_degree(svc)
+        out_degree = self._graph.out_degree(svc)
+        tier = meta.get("tier", "unknown")
+        team = meta.get("team", "unknown")
+        language = meta.get("language", "unknown")
+
+        # Indicate if this service was already queried
+        queried_status = "already queried" if svc in self._queried_services else "not yet queried"
+
+        content = (
+            f"[SERVICE HEALTH] {svc}\n"
+            f"  Team: {team} | Tier: {tier} | Language: {language}\n"
+            f"  Incoming dependencies (callers): {in_degree}\n"
+            f"  Outgoing dependencies (calls): {out_degree}\n"
+            f"  Investigation status: {queried_status}\n"
+            f"  Changed service: {'YES — this is the incident source' if svc == self._changed_service else 'no'}"
+        )
+
+        remaining = self._max_queries - self._queries_used
+        return ServiceImpactObservation(
+            changed_service=self._changed_service,
+            result=[],
+            queries_remaining=remaining,
+            message=f"{content}\nQueries remaining: {remaining} (free action — budget unchanged)",
+            done=False,
+            reward=None,
+        )
+
+    def _handle_hypothesis(
+        self, action: ServiceImpactAction
+    ) -> ServiceImpactObservation:
+        """Score a hypothesis without ending the episode.
+
+        Returns a delayed_reward (partial F-beta) that the agent can use to
+        calibrate its investigation strategy. Costs 1 query from budget.
+        Max hypotheses per episode is set by CurriculumScheduler (default 3).
+        """
+        # Curriculum-adaptive hypothesis cap
+        if self._curriculum_config is not None:
+            MAX_HYPOTHESES = self._curriculum_config.max_hypotheses
+        else:
+            MAX_HYPOTHESES = 3
+        self._state.hypothesis_count = getattr(self._state, 'hypothesis_count', 0) + 1
+        hypothesis_num = self._state.hypothesis_count
+
+        # Budget cost: each hypothesis check costs 1 query
+        self._queries_used += 1
+        self._state.queries_used = self._queries_used
+        queries_remaining = self._max_queries - self._queries_used
 
         predicted = set(action.affected_services or [])
         correct   = self._correct_affected
 
-        # F-beta (β=2): recall weighted 4× over precision
-        # Aligns with SRE cost model — missing an affected service causes an outage
+        # Compute partial F-beta (same formula as final submit)
         tp = len(predicted & correct)
         fp = len(predicted - correct)
         fn = len(correct   - predicted)
@@ -470,23 +775,134 @@ class ServiceImpactEnvironment(
             if (beta ** 2 * precision + recall) > 0
             else 0.0
         )
+        partial_score = round(max(0.001, min(0.999, fbeta)), 4)
 
-        # Overclaiming penalty: penalise submitting > 60% of all services
-        n_total    = len(self._all_services)
-        n_pred     = len(predicted)
-        if n_total > 0 and n_pred / n_total > 0.6:
-            oversubmit_frac = min(1.0, (n_pred / n_total - 0.6) / 0.4)
-            fbeta = max(0.0, fbeta - 0.3 * oversubmit_frac)
+        self._state.last_hypothesis_score = partial_score
 
-        # Clamp to open interval (0, 1) — the Phase-2 validator rejects
-        # scores that are exactly 0.0 or 1.0.
-        reward = round(max(0.001, min(0.999, fbeta)), 4)
+        # Cap enforcement
+        cap_note = ""
+        if hypothesis_num > MAX_HYPOTHESES:
+            cap_note = (
+                f"\n⚠️  Hypothesis cap exceeded ({hypothesis_num}/{MAX_HYPOTHESES}). "
+                f"Extra budget cost applied."
+            )
+            # Extra penalty: double budget cost for over-cap hypotheses
+            self._queries_used += 1
+            self._state.queries_used = self._queries_used
+            queries_remaining = self._max_queries - self._queries_used
+
+        # Log hypothesis via trajectory logger if available
+        if hasattr(self, '_trajectory_logger') and self._trajectory_logger:
+            self._trajectory_logger.log_hypothesis(
+                seed=self._current_seed,
+                step_num=self._state.step_count,
+                predicted=sorted(predicted),
+                confidence=action.confidence,
+                partial_score=partial_score,
+            )
+
+        # Check if budget exhausted
+        done = queries_remaining <= 0
+        if done:
+            self._episode_ended = True
+            self._state.episode_ended = True
+
+        confidence_str = f" (confidence={action.confidence:.2f})" if action.confidence is not None else ""
+
+        return ServiceImpactObservation(
+            changed_service=self._changed_service,
+            result=[],  # Never reveal ground truth on hypothesis
+            queries_remaining=max(0, queries_remaining),
+            message=(
+                f"[HYPOTHESIS #{hypothesis_num}]{confidence_str}\n"
+                f"Partial F-beta(β=2) = {partial_score:.3f} | "
+                f"Precision={precision:.3f} | Recall={recall:.3f} | "
+                f"TP={tp} FP={fp} FN={fn} | "
+                f"Predicted {len(predicted)} services.\n"
+                f"Queries remaining: {max(0, queries_remaining)} (hypothesis cost: 1 query)"
+                f"{cap_note}"
+                f"{self._pending_mutation_alert}"
+            ),
+            done=done,
+            reward=-0.4 if done else None,
+            delayed_reward=partial_score,
+        )
+
+    def _handle_submit(
+        self, action: ServiceImpactAction
+    ) -> ServiceImpactObservation:
+        """Score the agent's prediction using the active reward profile and end the episode."""
+        self._episode_ended       = True
+        self._state.episode_ended = True
+
+        predicted = set(action.affected_services or [])
+        correct   = self._correct_affected
+
+        # Use RewardOrchestrator if available, else fall back to hardcoded β=2
+        if self._reward_orchestrator and self._reward_profile:
+            score_data = self._reward_orchestrator.compute(
+                predicted=predicted,
+                correct=correct,
+                all_services_count=len(self._all_services),
+                queries_used=self._queries_used,
+                max_queries=self._max_queries,
+                profile=self._reward_profile,
+            )
+            reward    = score_data["reward"]
+            precision = score_data["precision"]
+            recall    = score_data["recall"]
+            tp, fp, fn = score_data["tp"], score_data["fp"], score_data["fn"]
+        else:
+            # Fallback: original hardcoded β=2 scoring
+            tp = len(predicted & correct)
+            fp = len(predicted - correct)
+            fn = len(correct   - predicted)
+
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            beta      = 2.0
+            fbeta     = (
+                (1 + beta ** 2) * precision * recall / (beta ** 2 * precision + recall)
+                if (beta ** 2 * precision + recall) > 0
+                else 0.0
+            )
+            n_total    = len(self._all_services)
+            n_pred     = len(predicted)
+            if n_total > 0 and n_pred / n_total > 0.6:
+                oversubmit_frac = min(1.0, (n_pred / n_total - 0.6) / 0.4)
+                fbeta = max(0.0, fbeta - 0.3 * oversubmit_frac)
+            reward = round(max(0.001, min(0.999, fbeta)), 4)
 
         self._state.predicted_affected = sorted(predicted)
         self._state.correct_affected   = sorted(correct)   # reveal ground truth
 
         missed          = sorted(correct   - predicted)
         false_positives = sorted(predicted - correct)
+
+        # Log submit and episode summary to trajectory
+        if self._trajectory_logger:
+            self._trajectory_logger.log_submit(
+                seed=self._current_seed,
+                step_num=self._state.step_count,
+                predicted=sorted(predicted),
+                correct=sorted(correct),
+                reward=reward,
+                precision=precision,
+                recall=recall,
+            )
+            self._trajectory_logger.log_episode(
+                seed=self._current_seed,
+                summary={
+                    "difficulty": self._task_difficulty,
+                    "reward": reward,
+                    "queries_used": self._queries_used,
+                    "max_queries": self._max_queries,
+                    "n_correct": len(correct),
+                    "n_predicted": len(predicted),
+                    "tp": tp, "fp": fp, "fn": fn,
+                    "hypothesis_count": getattr(self._state, 'hypothesis_count', 0),
+                },
+            )
 
         return ServiceImpactObservation(
             changed_service=self._changed_service,

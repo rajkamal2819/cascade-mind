@@ -104,6 +104,7 @@ class ServiceImpactEnv(
             message=obs_data.get("message", ""),
             done=obs_data.get("done", payload.get("done", False)),
             reward=obs_data.get("reward", payload.get("reward")),
+            delayed_reward=obs_data.get("delayed_reward"),
             metadata=obs_data.get("metadata", {}),
         )
 

@@ -318,6 +318,47 @@ _MCP_TOOLS = [
             "required": ["affected_services"],
         },
     },
+    {
+        "name": "submit_hypothesis",
+        "description": "Submit a hypothesis for partial scoring without ending the episode. Returns a delayed_reward (partial F-beta) so the agent can adjust its strategy.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "affected_services": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Services you currently believe are affected.",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Your confidence in this hypothesis (0.0-1.0).",
+                },
+            },
+            "required": ["affected_services"],
+        },
+    },
+    {
+        "name": "query_topology_diff",
+        "description": "Show all topology changes (mutations) that occurred during this episode. FREE action — no budget cost.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "query_service_health",
+        "description": "Get health summary for a service: tier, team, degree, investigation status. FREE action — no budget cost.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service_name": {
+                    "type": "string",
+                    "description": "The service to get health info for.",
+                },
+            },
+            "required": ["service_name"],
+        },
+    },
 ]
 
 
@@ -327,7 +368,7 @@ async def mcp_manifest():
     return {
         "schema_version": "2024-11-05",
         "name": "service_impact_env",
-        "version": "0.2.0",
+        "version": "2.0.0",
         "description": (
             "Cross-service impact analysis environment. Agents identify downstream "
             "services affected by a microservice change using LLM-simulated SRE tool output."
@@ -367,23 +408,42 @@ async def mcp_rpc(request: Request):
             })
 
         if method == "tools/call":
-            tool_name = body.get("params", {}).get("name", "")
+            params    = body.get("params", {})
+            tool_name = params.get("name", "")
             tool = next((t for t in _MCP_TOOLS if t["name"] == tool_name), None)
             if tool is None:
                 return JSONResponse({
                     "jsonrpc": "2.0", "id": req_id,
                     "error": {"code": -32601, "message": f"Tool not found: {tool_name}"},
                 })
+
+            # ── Execute the tool against a real environment instance ──
+            arguments = params.get("arguments", {})
+            env = ServiceImpactEnvironment()
+
+            # Auto-reset if no episode is active (MCP callers may not reset first)
+            if not env._changed_service:
+                seed = arguments.pop("seed", 42)
+                env.reset(seed=seed)
+
+            # Build action from MCP arguments
+            action_data = {"action_type": tool_name, **arguments}
+            try:
+                action = ServiceImpactAction(**action_data)
+            except Exception as exc:
+                return JSONResponse({
+                    "jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -32602, "message": f"Invalid params: {exc}"},
+                })
+
+            obs = env.step(action)
             return JSONResponse({
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {
-                    "content": [{
-                        "type": "text",
-                        "text": (
-                            f"Tool '{tool_name}' is available. "
-                            f"Execute via WebSocket at /ws using action_type='{tool_name}'."
-                        ),
-                    }]
+                    "content": [
+                        {"type": "text", "text": obs.message},
+                    ],
+                    "isError": False,
                 },
             })
 
