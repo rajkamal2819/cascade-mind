@@ -243,6 +243,23 @@ app.openapi_tags = [
 ]
 
 # ---------------------------------------------------------------------------
+# Playground — custom Gradio 6 interactive UI at /playground
+# ---------------------------------------------------------------------------
+try:
+    import gradio as gr
+    try:
+        from .playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
+    except ImportError:
+        from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
+    app = gr.mount_gradio_app(
+        app, playground_blocks, path="/playground",
+        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
+    )
+except Exception as _pg_exc:
+    import warnings as _w
+    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
+
+# ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) endpoint — RFC 003 compliance
 # Exposes the environment as a tool-callable MCP server.
 # GET  /mcp        → tools manifest (list all available tools)
@@ -254,8 +271,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 @app.get("/", include_in_schema=False)
 async def root_redirect():
-    """Redirect root to Swagger UI so the HF Space iframe shows docs instead of 404."""
-    return RedirectResponse(url="/docs")
+    """Redirect root to the interactive playground."""
+    return RedirectResponse(url="/playground")
 
 _MCP_TOOLS = [
     {
