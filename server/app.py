@@ -243,6 +243,21 @@ app.openapi_tags = [
 ]
 
 # ---------------------------------------------------------------------------
+# Ground-truth graph — must be registered before the Gradio catch-all mount
+# ---------------------------------------------------------------------------
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+
+@app.get("/graph/ground-truth", include_in_schema=False)
+async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
+    """Serve a standalone interactive vis.js page of the full ground-truth graph."""
+    try:
+        from .playground import build_ground_truth_html
+    except ImportError:
+        from server.playground import build_ground_truth_html  # type: ignore
+    html = build_ground_truth_html(seed=seed, difficulty=difficulty)
+    return HTMLResponse(content=html)
+
+# ---------------------------------------------------------------------------
 # Playground — custom Gradio 6 interactive UI at /
 # ---------------------------------------------------------------------------
 try:
@@ -266,18 +281,6 @@ except Exception as _pg_exc:
 # POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
 # ---------------------------------------------------------------------------
 from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
-
-
-@app.get("/graph/ground-truth", include_in_schema=False)
-async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
-    """Serve a standalone interactive vis.js page of the full ground-truth graph."""
-    try:
-        from .playground import build_ground_truth_html
-    except ImportError:
-        from server.playground import build_ground_truth_html  # type: ignore
-    html = build_ground_truth_html(seed=seed, difficulty=difficulty)
-    return HTMLResponse(content=html)
 
 _MCP_TOOLS = [
     {
