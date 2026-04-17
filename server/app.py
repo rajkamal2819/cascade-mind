@@ -243,7 +243,7 @@ app.openapi_tags = [
 ]
 
 # ---------------------------------------------------------------------------
-# Playground — custom Gradio 6 interactive UI at /playground
+# Playground — custom Gradio 6 interactive UI at /
 # ---------------------------------------------------------------------------
 try:
     import gradio as gr
@@ -252,7 +252,7 @@ try:
     except ImportError:
         from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
     app = gr.mount_gradio_app(
-        app, playground_blocks, path="/playground",
+        app, playground_blocks, path="/",
         css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
     )
 except Exception as _pg_exc:
@@ -267,12 +267,6 @@ except Exception as _pg_exc:
 # ---------------------------------------------------------------------------
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
-
-
-@app.get("/", include_in_schema=False)
-async def root_redirect():
-    """Redirect root to the interactive playground."""
-    return RedirectResponse(url="/playground")
 
 
 @app.get("/graph/ground-truth", include_in_schema=False)
