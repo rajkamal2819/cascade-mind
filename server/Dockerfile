@@ -93,14 +93,14 @@ ENV LLM_CACHE_PATH=/app/env/llm_sim_cache.json
 # HF_TOKEN: set at runtime via HuggingFace Space secrets (not baked into image)
 # ENV HF_TOKEN=<set-via-runtime-secret>
 
-# Expose port (7860 = HuggingFace Spaces standard)
-EXPOSE 7860
+# Expose port
+EXPOSE 8000
 
 # Health check — hits the /health endpoint every 30s
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c \
-    "import urllib.request; urllib.request.urlopen('http://localhost:7860/health')" \
+    "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" \
     || exit 1
 
 # Start the FastAPI server
-CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host 0.0.0.0 --port 7860 --log-level info"]
+CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host 0.0.0.0 --port 8000 --log-level info"]
