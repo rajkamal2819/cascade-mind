@@ -270,6 +270,10 @@ try:
         app, playground_blocks, path="/",
         css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
     )
+    app = gr.mount_gradio_app(
+        app, playground_blocks, path="/web",
+        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
+    )
 except Exception as _pg_exc:
     import warnings as _w
     _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
