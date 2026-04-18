@@ -266,12 +266,14 @@ try:
         from .playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
     except ImportError:
         from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
+    # /web must be mounted BEFORE / — Starlette processes mounts in order
+    # and path="/" is a catch-all that would swallow /web if registered first.
     app = gr.mount_gradio_app(
-        app, playground_blocks, path="/",
+        app, playground_blocks, path="/web",
         css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
     )
     app = gr.mount_gradio_app(
-        app, playground_blocks, path="/web",
+        app, playground_blocks, path="/",
         css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
     )
 except Exception as _pg_exc:
