@@ -243,19 +243,59 @@ app.openapi_tags = [
 ]
 
 # ---------------------------------------------------------------------------
+# Ground-truth graph — must be registered before the Gradio catch-all mount
+# ---------------------------------------------------------------------------
+from fastapi import Request
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+
+@app.get("/graph/ground-truth", include_in_schema=False)
+async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
+    """Serve a standalone interactive vis.js page of the full ground-truth graph."""
+    try:
+        from .playground import build_ground_truth_html
+    except ImportError:
+        from server.playground import build_ground_truth_html  # type: ignore
+    html = build_ground_truth_html(seed=seed, difficulty=difficulty)
+    return HTMLResponse(content=html)
+
+# ---------------------------------------------------------------------------
+# Evict any default openenv /web or / Gradio route so ours takes priority
+# ---------------------------------------------------------------------------
+_evict_paths = {"/", "/web"}
+app.routes[:] = [r for r in app.routes if not (hasattr(r, "path") and r.path in _evict_paths)]
+
+# HF Spaces / openenv hits /web first — must be BEFORE the Gradio catch-all mount
+@app.get("/web", include_in_schema=False)
+async def web_redirect():
+    return RedirectResponse(url="/")
+
+@app.get("/web/", include_in_schema=False)
+async def web_slash_redirect():
+    return RedirectResponse(url="/")
+
+# ---------------------------------------------------------------------------
+# Playground — custom Gradio 6 interactive UI at /
+# ---------------------------------------------------------------------------
+try:
+    import gradio as gr
+    try:
+        from .playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
+    except ImportError:
+        from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
+    app = gr.mount_gradio_app(
+        app, playground_blocks, path="/",
+        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
+    )
+except Exception as _pg_exc:
+    import warnings as _w
+    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
+
+# ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) endpoint — RFC 003 compliance
 # Exposes the environment as a tool-callable MCP server.
 # GET  /mcp        → tools manifest (list all available tools)
 # POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
 # ---------------------------------------------------------------------------
-from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse
-
-
-@app.get("/", include_in_schema=False)
-async def root_redirect():
-    """Redirect root to Swagger UI so the HF Space iframe shows docs instead of 404."""
-    return RedirectResponse(url="/docs")
 
 _MCP_TOOLS = [
     {
@@ -318,6 +358,47 @@ _MCP_TOOLS = [
             "required": ["affected_services"],
         },
     },
+    {
+        "name": "submit_hypothesis",
+        "description": "Submit a hypothesis for partial scoring without ending the episode. Returns a delayed_reward (partial F-beta) so the agent can adjust its strategy.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "affected_services": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Services you currently believe are affected.",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Your confidence in this hypothesis (0.0-1.0).",
+                },
+            },
+            "required": ["affected_services"],
+        },
+    },
+    {
+        "name": "query_topology_diff",
+        "description": "Show all topology changes (mutations) that occurred during this episode. FREE action — no budget cost.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "query_service_health",
+        "description": "Get health summary for a service: tier, team, degree, investigation status. FREE action — no budget cost.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "service_name": {
+                    "type": "string",
+                    "description": "The service to get health info for.",
+                },
+            },
+            "required": ["service_name"],
+        },
+    },
 ]
 
 
@@ -327,7 +408,7 @@ async def mcp_manifest():
     return {
         "schema_version": "2024-11-05",
         "name": "service_impact_env",
-        "version": "0.2.0",
+        "version": "2.0.0",
         "description": (
             "Cross-service impact analysis environment. Agents identify downstream "
             "services affected by a microservice change using LLM-simulated SRE tool output."
@@ -367,23 +448,42 @@ async def mcp_rpc(request: Request):
             })
 
         if method == "tools/call":
-            tool_name = body.get("params", {}).get("name", "")
+            params    = body.get("params", {})
+            tool_name = params.get("name", "")
             tool = next((t for t in _MCP_TOOLS if t["name"] == tool_name), None)
             if tool is None:
                 return JSONResponse({
                     "jsonrpc": "2.0", "id": req_id,
                     "error": {"code": -32601, "message": f"Tool not found: {tool_name}"},
                 })
+
+            # ── Execute the tool against a real environment instance ──
+            arguments = params.get("arguments", {})
+            env = ServiceImpactEnvironment()
+
+            # Auto-reset if no episode is active (MCP callers may not reset first)
+            if not env._changed_service:
+                seed = arguments.pop("seed", 42)
+                env.reset(seed=seed)
+
+            # Build action from MCP arguments
+            action_data = {"action_type": tool_name, **arguments}
+            try:
+                action = ServiceImpactAction(**action_data)
+            except Exception as exc:
+                return JSONResponse({
+                    "jsonrpc": "2.0", "id": req_id,
+                    "error": {"code": -32602, "message": f"Invalid params: {exc}"},
+                })
+
+            obs = env.step(action)
             return JSONResponse({
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {
-                    "content": [{
-                        "type": "text",
-                        "text": (
-                            f"Tool '{tool_name}' is available. "
-                            f"Execute via WebSocket at /ws using action_type='{tool_name}'."
-                        ),
-                    }]
+                    "content": [
+                        {"type": "text", "text": obs.message},
+                    ],
+                    "isError": False,
                 },
             })
 

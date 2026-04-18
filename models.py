@@ -71,17 +71,22 @@ class ServiceImpactAction(Action):
     """
 
     action_type: Literal[
-        "query_dependents",   # find who calls a service (uses budget)
-        "query_dependencies", # find what a service depends on (uses budget)
-        "query_runbook",      # fetch Confluence-style runbook (FREE — no budget)
-        "query_changelog",    # fetch PR/changelog for the changed service (FREE)
-        "query_monitoring",   # fetch Datadog-style monitoring snapshot (FREE)
-        "submit",             # final answer — ends the episode
+        "query_dependents",    # find who calls a service (uses budget)
+        "query_dependencies",  # find what a service depends on (uses budget)
+        "query_runbook",       # fetch Confluence-style runbook (FREE — no budget)
+        "query_changelog",     # fetch PR/changelog for the changed service (FREE)
+        "query_monitoring",    # fetch Datadog-style monitoring snapshot (FREE)
+        "query_topology_diff", # show graph changes since episode start (FREE)
+        "query_service_health",# fetch health status summary for a service (FREE)
+        "submit_hypothesis",   # partial check — returns delayed_reward, does NOT end episode
+        "submit",              # final answer — ends the episode
     ] = Field(
         ...,
         description=(
             "Type of action. Budget-consuming: 'query_dependents', 'query_dependencies'. "
-            "Free (no budget cost): 'query_runbook', 'query_changelog', 'query_monitoring'. "
+            "Free (no budget cost): 'query_runbook', 'query_changelog', 'query_monitoring', "
+            "'query_topology_diff', 'query_service_health'. "
+            "Hypothesis check: 'submit_hypothesis' (returns partial F-beta, episode continues). "
             "Terminal: 'submit' (ends episode, scored with F-beta β=2)."
         ),
     )
@@ -93,7 +98,16 @@ class ServiceImpactAction(Action):
         default=None,
         description=(
             "Your final answer: list of ALL services affected by the change. "
-            "Required when action_type='submit'."
+            "Required when action_type='submit' or 'submit_hypothesis'."
+        ),
+    )
+    confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Agent's confidence in the hypothesis (0.0-1.0). "
+            "Used with 'submit_hypothesis' to track agent calibration."
         ),
     )
 
@@ -131,6 +145,13 @@ class ServiceImpactObservation(Observation):
         default="",
         description="Human-readable description of the current step result.",
     )
+    delayed_reward: Optional[float] = Field(
+        default=None,
+        description=(
+            "Partial F-beta score from submit_hypothesis. "
+            "None for all other actions. Does not end the episode."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -160,3 +181,14 @@ class ServiceImpactState(State):
         description="Difficulty tier: 'easy' | 'medium' | 'hard'.",
     )
     episode_ended: bool = Field(default=False, description="True once the episode is complete.")
+
+    # Free-action usage counters (v2: caps prevent unlimited free exploration)
+    runbook_uses: int = Field(default=0, ge=0, description="Times query_runbook used this episode.")
+    changelog_uses: int = Field(default=0, ge=0, description="Times query_changelog used this episode.")
+    monitoring_uses: int = Field(default=0, ge=0, description="Times query_monitoring used this episode.")
+    hypothesis_count: int = Field(default=0, ge=0, description="Times submit_hypothesis used this episode.")
+    last_hypothesis_score: Optional[float] = Field(default=None, description="Partial F-beta from last hypothesis.")
+    reward_profile: str = Field(
+        default="recall_heavy",
+        description="Active reward profile for this episode: recall_heavy | balanced | precision_heavy | efficiency.",
+    )
