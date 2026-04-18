@@ -281,6 +281,11 @@ except Exception as _pg_exc:
     import warnings as _w
     _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
 
+# HF Spaces / openenv hits /web first — redirect to our root playground
+@app.get("/web", include_in_schema=False)
+async def web_redirect():
+    return RedirectResponse(url="/")
+
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) endpoint — RFC 003 compliance
 # Exposes the environment as a tool-callable MCP server.
