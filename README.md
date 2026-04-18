@@ -14,6 +14,7 @@ tags:
   - reinforcement-learning
   - incident-response
   - networkx
+base_path: /web
 ---
 
 # cascade-mind — Service Impact Analysis
