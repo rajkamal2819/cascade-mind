@@ -258,7 +258,7 @@ async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
     return HTMLResponse(content=html)
 
 # ---------------------------------------------------------------------------
-# Playground — custom Gradio 6 interactive UI at /
+# Playground — custom Gradio 6 interactive UI at / and /web
 # ---------------------------------------------------------------------------
 try:
     import gradio as gr
@@ -266,7 +266,21 @@ try:
         from .playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
     except ImportError:
         from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
-    # /web must be mounted BEFORE / — Starlette processes mounts in order
+
+    # openenv-core's create_app() registers its own /web APIRoute.
+    # Evict it before mounting Gradio — otherwise FastAPI's APIRoute wins over
+    # our Starlette Mount and the old default web interface is shown instead.
+    from starlette.routing import Mount as _Mount
+    app.router.routes = [
+        r for r in app.router.routes
+        if not (
+            hasattr(r, "path")
+            and r.path in ("/web", "/web/{path:path}")
+            and not isinstance(r, _Mount)
+        )
+    ]
+
+    # /web must be mounted BEFORE / — Starlette evaluates mounts in order
     # and path="/" is a catch-all that would swallow /web if registered first.
     app = gr.mount_gradio_app(
         app, playground_blocks, path="/web",
