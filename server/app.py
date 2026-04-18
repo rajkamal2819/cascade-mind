@@ -292,7 +292,8 @@ try:
     )
 except Exception as _pg_exc:
     import warnings as _w
-    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
+    import traceback as _tb
+    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}\n{_tb.format_exc()}", stacklevel=1)
 
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) endpoint — RFC 003 compliance
