@@ -243,7 +243,29 @@ app.openapi_tags = [
 ]
 
 # ---------------------------------------------------------------------------
-# Playground — custom Gradio 6 interactive UI at /playground
+# Ground-truth graph — must be registered before the Gradio catch-all mount
+# ---------------------------------------------------------------------------
+from fastapi import Request
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+
+@app.get("/graph/ground-truth", include_in_schema=False)
+async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
+    """Serve a standalone interactive vis.js page of the full ground-truth graph."""
+    try:
+        from .playground import build_ground_truth_html
+    except ImportError:
+        from server.playground import build_ground_truth_html  # type: ignore
+    html = build_ground_truth_html(seed=seed, difficulty=difficulty)
+    return HTMLResponse(content=html)
+
+# ---------------------------------------------------------------------------
+# Evict any default openenv /web or / Gradio route so ours takes priority
+# ---------------------------------------------------------------------------
+_evict_paths = {"/", "/web"}
+app.routes[:] = [r for r in app.routes if not (hasattr(r, "path") and r.path in _evict_paths)]
+
+# ---------------------------------------------------------------------------
+# Playground — custom Gradio 6 interactive UI at /
 # ---------------------------------------------------------------------------
 try:
     import gradio as gr
@@ -252,7 +274,7 @@ try:
     except ImportError:
         from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
     app = gr.mount_gradio_app(
-        app, playground_blocks, path="/playground",
+        app, playground_blocks, path="/",
         css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
     )
 except Exception as _pg_exc:
@@ -265,25 +287,6 @@ except Exception as _pg_exc:
 # GET  /mcp        → tools manifest (list all available tools)
 # POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
 # ---------------------------------------------------------------------------
-from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
-
-
-@app.get("/", include_in_schema=False)
-async def root_redirect():
-    """Redirect root to the interactive playground."""
-    return RedirectResponse(url="/playground")
-
-
-@app.get("/graph/ground-truth", include_in_schema=False)
-async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
-    """Serve a standalone interactive vis.js page of the full ground-truth graph."""
-    try:
-        from .playground import build_ground_truth_html
-    except ImportError:
-        from server.playground import build_ground_truth_html  # type: ignore
-    html = build_ground_truth_html(seed=seed, difficulty=difficulty)
-    return HTMLResponse(content=html)
 
 _MCP_TOOLS = [
     {
