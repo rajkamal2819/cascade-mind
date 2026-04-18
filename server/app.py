@@ -264,6 +264,15 @@ async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
 _evict_paths = {"/", "/web"}
 app.routes[:] = [r for r in app.routes if not (hasattr(r, "path") and r.path in _evict_paths)]
 
+# HF Spaces / openenv hits /web first — must be BEFORE the Gradio catch-all mount
+@app.get("/web", include_in_schema=False)
+async def web_redirect():
+    return RedirectResponse(url="/")
+
+@app.get("/web/", include_in_schema=False)
+async def web_slash_redirect():
+    return RedirectResponse(url="/")
+
 # ---------------------------------------------------------------------------
 # Playground — custom Gradio 6 interactive UI at /
 # ---------------------------------------------------------------------------
@@ -280,11 +289,6 @@ try:
 except Exception as _pg_exc:
     import warnings as _w
     _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
-
-# HF Spaces / openenv hits /web first — redirect to our root playground
-@app.get("/web", include_in_schema=False)
-async def web_redirect():
-    return RedirectResponse(url="/")
 
 # ---------------------------------------------------------------------------
 # MCP (Model Context Protocol) endpoint — RFC 003 compliance
