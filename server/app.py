@@ -243,9 +243,37 @@ app.openapi_tags = [
 ]
 
 # ---------------------------------------------------------------------------
-# Ground-truth graph — must be registered before the Gradio catch-all mount
+# Playground — custom Gradio 6 interactive UI at /playground
 # ---------------------------------------------------------------------------
+try:
+    import gradio as gr
+    try:
+        from .playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
+    except ImportError:
+        from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
+    app = gr.mount_gradio_app(
+        app, playground_blocks, path="/playground",
+        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
+    )
+except Exception as _pg_exc:
+    import warnings as _w
+    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
+
+# ---------------------------------------------------------------------------
+# MCP (Model Context Protocol) endpoint — RFC 003 compliance
+# Exposes the environment as a tool-callable MCP server.
+# GET  /mcp        → tools manifest (list all available tools)
+# POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
+# ---------------------------------------------------------------------------
+from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+
+
+@app.get("/", include_in_schema=False)
+async def root_redirect():
+    """Redirect root to the interactive playground."""
+    return RedirectResponse(url="/playground")
+
 
 @app.get("/graph/ground-truth", include_in_schema=False)
 async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
@@ -256,52 +284,6 @@ async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
         from server.playground import build_ground_truth_html  # type: ignore
     html = build_ground_truth_html(seed=seed, difficulty=difficulty)
     return HTMLResponse(content=html)
-
-# ---------------------------------------------------------------------------
-# Playground — custom Gradio 6 interactive UI at / and /web
-# ---------------------------------------------------------------------------
-try:
-    import gradio as gr
-    try:
-        from .playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
-    except ImportError:
-        from server.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
-
-    # openenv-core's create_app() registers its own /web APIRoute.
-    # Evict it before mounting Gradio — otherwise FastAPI's APIRoute wins over
-    # our Starlette Mount and the old default web interface is shown instead.
-    from starlette.routing import Mount as _Mount
-    app.router.routes = [
-        r for r in app.router.routes
-        if not (
-            hasattr(r, "path")
-            and r.path in ("/web", "/web/{path:path}")
-            and not isinstance(r, _Mount)
-        )
-    ]
-
-    # /web must be mounted BEFORE / — Starlette evaluates mounts in order
-    # and path="/" is a catch-all that would swallow /web if registered first.
-    app = gr.mount_gradio_app(
-        app, playground_blocks, path="/web",
-        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
-    )
-    app = gr.mount_gradio_app(
-        app, playground_blocks, path="/",
-        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
-    )
-except Exception as _pg_exc:
-    import warnings as _w
-    import traceback as _tb
-    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}\n{_tb.format_exc()}", stacklevel=1)
-
-# ---------------------------------------------------------------------------
-# MCP (Model Context Protocol) endpoint — RFC 003 compliance
-# Exposes the environment as a tool-callable MCP server.
-# GET  /mcp        → tools manifest (list all available tools)
-# POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
-# ---------------------------------------------------------------------------
-from fastapi import Request
 
 _MCP_TOOLS = [
     {

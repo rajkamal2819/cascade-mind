@@ -1056,24 +1056,22 @@ PLAYGROUND_THEME = gr.themes.Soft(
 
 with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
 
-    # Header — soft lavender-to-sky gradient banner
+    # Header
     gr.HTML(
-        '<div style="background:linear-gradient(135deg,#eef2ff 0%,#e0e7ff 40%,#dbeafe 100%);'
-        'border-radius:0 0 14px 14px;padding:26px 20px 20px;margin:-16px -16px 18px -16px;'
-        'text-align:center;border-bottom:1px solid #c7d2fe">'
-        '<div style="font-size:28px;font-weight:900;color:#312e81;letter-spacing:-0.5px">'
+        '<div style="text-align:center;padding:20px 0 16px;border-bottom:1px solid #e5e7eb;margin-bottom:18px">'
+        '<div style="font-size:26px;font-weight:900;color:#111827;letter-spacing:-0.5px">'
         '&#129504; cascade-mind</div>'
-        '<div style="font-size:13px;color:#6366f1;margin-top:6px;font-weight:500">'
+        '<div style="font-size:13px;color:#6b7280;margin-top:5px">'
         'SRE Incident Response Playground &nbsp;&middot;&nbsp; '
         'Identify the blast radius of a breaking microservice change</div>'
-        '<div style="margin-top:12px;font-size:12px;display:flex;justify-content:center;gap:20px">'
-        '<a href="/docs" target="_blank" style="color:#4338ca;text-decoration:none;font-weight:600;'
+        '<div style="margin-top:10px;font-size:12px;display:flex;justify-content:center;gap:20px">'
+        '<a href="/docs" target="_blank" style="color:#4f46e5;text-decoration:none;font-weight:600;'
         'display:inline-flex;align-items:center;gap:4px">API Docs'
         '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
         'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
         '<path d="M6 3H3v10h10v-3"/><path d="M9 2h5v5"/><path d="M14 2L7 9"/></svg></a>'
         '<a href="https://github.com/rajkamal2819/cascade-mind" target="_blank" '
-        'style="color:#4338ca;text-decoration:none;font-weight:600;'
+        'style="color:#4f46e5;text-decoration:none;font-weight:600;'
         'display:inline-flex;align-items:center;gap:4px">GitHub'
         '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
         'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'

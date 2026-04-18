@@ -43,8 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
             "websockets>=12.0" \
             "openai>=1.0.0" \
             "huggingface_hub>=0.24.0" \
-            "jinja2==3.1.4" \
-            "gradio>=5.0.0"; \
+            "jinja2==3.1.4"; \
     fi
 
 # Pass 2: install the project itself
