@@ -717,7 +717,10 @@ function setSpeed(s){{speed=s}}
 def build_ground_truth_html(seed: int = 0, difficulty: str = "easy") -> str:
     """Build a standalone HTML page showing the full ground-truth graph."""
     G = build_service_graph(seed=seed)
-    from .graph_builder import get_scenario  # lazy to avoid circular at module level
+    try:
+        from ..graph.graph_builder import get_scenario  # type: ignore
+    except ImportError:
+        from cascade_mind.server.graph.graph_builder import get_scenario  # type: ignore
     scenario = get_scenario(G, seed)
     changed = scenario["changed_service"]
     affected = get_affected_services(G, changed)
