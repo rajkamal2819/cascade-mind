@@ -195,8 +195,17 @@ class ServiceImpactEnvironment(
             documentation_url="https://huggingface.co/spaces/Rajkamal2819/cascade-mind",
         )
 
-    def __init__(self) -> None:
+    def __init__(self, domain_config=None) -> None:
+        """
+        Args:
+            domain_config: Optional DomainConfig instance. When None (default),
+                           the SRE microservices domain is used unchanged.
+                           Pass DOMAINS['supply_chain'] to run the supply-chain domain.
+        """
         super().__init__()
+
+        # ── DomainConfig plugin (v3) — None = SRE default (zero behaviour change)
+        self._domain = domain_config   # None → SRE path; DomainConfig → plugin path
 
         # LLM simulator (optional — graceful fallback if HF_TOKEN not set)
         llm_enabled = os.environ.get("LLM_SIMULATOR_ENABLED", "true").lower() == "true"
@@ -276,17 +285,43 @@ class ServiceImpactEnvironment(
             seed = random.randint(0, 100_000)
         self._current_seed = seed
 
-        # Build episode-specific perturbed graph
-        self._graph       = build_service_graph(seed=seed)
-        self._all_services = get_all_services(self._graph)
-
-        # Select scenario dynamically from seed + graph
-        scenario               = get_scenario(self._graph, seed)
-        self._task_difficulty  = scenario["difficulty"]
-        self._changed_service  = scenario["changed_service"]
-        self._max_queries      = scenario["max_queries"]
-        # Store initial affected set (may change via mutations; recomputed at submit)
-        self._correct_affected = get_affected_services(self._graph, self._changed_service)
+        if self._domain is None:
+            # ── SRE default path (unchanged) ──────────────────────────────
+            self._graph        = build_service_graph(seed=seed)
+            self._all_services = get_all_services(self._graph)
+            scenario               = get_scenario(self._graph, seed)
+            self._task_difficulty  = scenario["difficulty"]
+            self._changed_service  = scenario["changed_service"]
+            self._max_queries      = scenario["max_queries"]
+            self._correct_affected = get_affected_services(self._graph, self._changed_service)
+            scenario_hint = scenario["hint"]
+        else:
+            # ── DomainConfig plugin path ───────────────────────────────────
+            # Build graph from DomainConfig edges (seed-perturbed subset)
+            self._graph = nx.DiGraph()
+            self._graph.add_nodes_from(self._domain.nodes)
+            # Add all base edges + random seed-driven extras (up to 3)
+            rng = random.Random(seed)
+            edges = list(self._domain.edges)
+            rng.shuffle(edges)
+            for e in edges:
+                self._graph.add_edge(*e)
+            self._all_services = list(self._domain.nodes)
+            # Pick changed node by seed
+            node_list = self._all_services
+            self._changed_service = node_list[seed % len(node_list)]
+            # Difficulty by seed mod 3
+            difficulties = ["easy", "medium", "hard"]
+            self._task_difficulty = difficulties[seed % 3]
+            budget_map = {"easy": 15, "medium": 12, "hard": 10}
+            self._max_queries = budget_map[self._task_difficulty]
+            self._correct_affected = get_affected_services(self._graph, self._changed_service)
+            scenario_hint = (
+                f"A {self._domain.node_type_label} has been disrupted. "
+                f"Use {self._domain.tool_labels.get('query_runbook', 'query_runbook')} "
+                f"and {self._domain.tool_labels.get('query_monitoring', 'query_monitoring')} "
+                f"to trace the impact cascade."
+            )
 
         # MutationEngine (v2: mid-episode topology changes)
         if MutationEngine is not None:
@@ -368,32 +403,64 @@ class ServiceImpactEnvironment(
         # Generate LLM incident context (cached per seed — fast on cache hit)
         meta = SERVICE_METADATA.get(self._changed_service, {})
         incident_block = ""
-        if self._simulator.is_active:
-            try:
-                self._incident_context = self._simulator.generate_incident_context(
-                    seed=seed,
-                    changed_service=self._changed_service,
-                    team=meta.get("team", "platform"),
-                    language=meta.get("language", "python"),
-                    tier=meta.get("tier", 2),
-                    difficulty=self._task_difficulty,
-                )
-                incident_block = (
-                    f"\n\n{'═'*52}\n"
-                    f"INCIDENT ALERT\n{self._incident_context.alert_text}\n\n"
-                    f"CHANGE LOG\n{self._incident_context.changelog_text}\n"
-                    f"{'═'*52}\n"
-                )
-            except Exception:
-                pass   # graceful degradation — episode continues without LLM context
+        if self._domain is None:
+            # SRE: use LLM simulator for incident context
+            if self._simulator.is_active:
+                try:
+                    self._incident_context = self._simulator.generate_incident_context(
+                        seed=seed,
+                        changed_service=self._changed_service,
+                        team=meta.get("team", "platform"),
+                        language=meta.get("language", "python"),
+                        tier=meta.get("tier", 2),
+                        difficulty=self._task_difficulty,
+                    )
+                    incident_block = (
+                        f"\n\n{'═'*52}\n"
+                        f"INCIDENT ALERT\n{self._incident_context.alert_text}\n\n"
+                        f"CHANGE LOG\n{self._incident_context.changelog_text}\n"
+                        f"{'═'*52}\n"
+                    )
+                except Exception:
+                    pass   # graceful degradation
+        else:
+            # Domain plugin: show task_description + a rotating real-world archetype
+            archetype = ""
+            if self._domain.incident_archetypes:
+                archetype = self._domain.incident_archetypes[seed % len(self._domain.incident_archetypes)]
+            node_meta = self._domain.node_metadata.get(self._changed_service, {})
+            tier_str = f"Tier-{node_meta.get('tier', '?')}" if node_meta else ""
+            has_alt = node_meta.get("has_alt", False)
+            alt_note = "⚠ No known alternative supplier." if not has_alt else "Alternative source exists but with reduced capacity."
+            incident_block = (
+                f"\n\n{'═'*52}\n"
+                f"DISRUPTION ALERT [{tier_str} {self._domain.node_type_label.upper()}]\n"
+                f"Node '{self._changed_service}' has been disrupted.\n"
+                f"{alt_note}\n\n"
+                f"REAL-WORLD ANALOGUE\n{archetype}\n"
+                f"\nTASK: {self._domain.task_description}\n"
+                f"{'═'*52}\n"
+            )
 
         n_total = len(self._all_services)
+        node_type = self._domain.node_type_label if self._domain else "service"
         profile_desc = ""
         if self._reward_profile:
             profile_desc = (
                 f"\nReward profile: {self._reward_profile.name} — "
                 f"{self._reward_profile.description}"
             )
+
+        # Free-action labels (domain-aware)
+        if self._domain:
+            rl = self._domain.tool_labels
+            free_action_text = (
+                f"{rl.get('query_runbook', 'query_runbook')}, "
+                f"{rl.get('query_changelog', 'query_changelog')}, "
+                f"{rl.get('query_monitoring', 'query_monitoring')}"
+            )
+        else:
+            free_action_text = "query_runbook, query_changelog, query_monitoring"
 
         # Graph prior hint (v3: session-level warm-start)
         prior_hint = ""
@@ -414,16 +481,16 @@ class ServiceImpactEnvironment(
             queries_remaining=self._max_queries,
             message=(
                 f"[{self._task_difficulty.upper()} TASK] "
-                f"Service '{self._changed_service}' has a breaking change. "
-                f"Identify ALL downstream services that will be affected."
+                f"{node_type.capitalize()} '{self._changed_service}' has been disrupted. "
+                f"Identify ALL downstream {node_type}s that will be affected."
                 f"{incident_block}"
-                f"System has {n_total} total services. "
+                f"System has {n_total} total {node_type}s. "
                 f"Query budget: {self._max_queries}.\n"
-                f"Hint: {scenario['hint']}"
+                f"Hint: {scenario_hint}"
                 f"{curriculum_hint}\n"
                 f"{prior_hint}"
                 f"Budget actions: query_dependents, query_dependencies. "
-                f"Free actions: query_runbook, query_changelog, query_monitoring. "
+                f"Free actions: {free_action_text}. "
                 f"Hypothesis check: submit_hypothesis (costs 1 query). "
                 f"Finish with: submit."
                 f"{profile_desc}"

@@ -20,12 +20,14 @@ try:
         build_service_graph, get_affected_services,
     )
     from ..env.service_impact_environment import ServiceImpactEnvironment
+    from ..domain import DOMAINS
 except ImportError:
     from cascade_mind.server.graph.graph_builder import (  # type: ignore
         SERVICES, SERVICE_METADATA, BASE_EDGES, CANDIDATE_EDGES,
         build_service_graph, get_affected_services,
     )
     from cascade_mind.server.env.service_impact_environment import ServiceImpactEnvironment  # type: ignore
+    from cascade_mind.server.domain import DOMAINS  # type: ignore
 
 try:
     from ...models import ServiceImpactAction
@@ -52,6 +54,17 @@ ACTION_CHOICES = [
 
 ALL_SERVICES = sorted(SERVICES)
 
+DOMAIN_CHOICES = [
+    ("🖥️  SRE / Microservices", "sre"),
+    ("🚢  Supply-Chain Disruption", "supply_chain"),
+]
+
+
+def _services_for_domain(domain_key: str) -> list[str]:
+    """Return sorted node list for the given domain key."""
+    d = DOMAINS.get(domain_key)
+    return sorted(d.nodes) if d else ALL_SERVICES
+
 
 def _empty_state() -> dict:
     return dict(
@@ -59,8 +72,9 @@ def _empty_state() -> dict:
         discovered={},   # {svc: "how found"}
         edges_seen=[],    # [(from_svc, to_svc)] directed edges discovered
         steps=[],         # [{n, action, target, cost, budget_left}]
-        scores=[],        # [{seed, diff, score, steps_used, budget_left}]
+        scores=[],        # [{seed, diff, domain, score, steps_used, budget_left}]
         difficulty="easy", seed=0,
+        domain="sre",           # active domain key
         # v3: world modeling
         belief_state={},        # {service: confidence}
         ig_history=[],          # [float] per step
@@ -876,11 +890,13 @@ def _env_state_dict(env) -> dict:
         return {}
 
 
-def reset_episode(difficulty: str, custom_seed: int, _state: dict):
+def reset_episode(difficulty: str, custom_seed: int, domain_key: str, _state: dict):
     seed = DIFFICULTY_SEED.get(difficulty, 0) if int(custom_seed) < 0 else int(custom_seed)
-    env = ServiceImpactEnvironment()
+    domain_config = DOMAINS.get(domain_key)   # None → SRE (default env behaviour)
+    env = ServiceImpactEnvironment(domain_config=domain_config)
     obs = env.reset(seed=seed)
     svc, mq = env._changed_service, env._max_queries
+    all_svcs = _services_for_domain(domain_key)
     # Preserve scores across episodes
     prev_scores = _state.get("scores", []) if _state else []
     init_discovered = {svc: "incident alert"}
@@ -890,6 +906,7 @@ def reset_episode(difficulty: str, custom_seed: int, _state: dict):
         edges_seen=[],
         steps=[], scores=prev_scores,
         difficulty=difficulty, seed=seed,
+        domain=domain_key,
         # v3: world modeling
         belief_state={},
         ig_history=[],
@@ -897,22 +914,23 @@ def reset_episode(difficulty: str, custom_seed: int, _state: dict):
         contradiction_count=0,
     )
     chat = [{"role": "assistant", "content": f"**Incident triggered!**\n\n{obs.message}"}]
+    domain_display = dict(DOMAIN_CHOICES).get(domain_key, domain_key)
     return (
         st,
         chat,
         _budget_html(mq, mq),
         _banner_html(svc, difficulty, seed),
-        "",                                   # clear score card
-        gr.update(value=svc),                 # pre-select service dropdown
-        gr.update(interactive=True),          # enable Execute button
-        gr.update(value=[]),                  # clear affected checkboxes
-        gr.update(value="query_dependents"),  # reset action radio
-        _env_state_dict(env),                 # env state panel
-        _discovered_html(init_discovered),    # discovered panel
-        "",                                   # clear timeline
-        _scoreboard_html(prev_scores),        # refresh scoreboard
-        _vis_js_graph_html(init_discovered, [], svc),  # live graph
-        _replay_html([], {}, [], svc),  # empty replay
+        "",                                      # clear score card
+        gr.update(value=svc, choices=all_svcs),  # update + pre-select service dropdown
+        gr.update(interactive=True),             # enable Execute button
+        gr.update(value=[], choices=all_svcs),   # update affected checkboxes
+        gr.update(value="query_dependents"),     # reset action radio
+        _env_state_dict(env),                    # env state panel
+        _discovered_html(init_discovered),       # discovered panel
+        "",                                      # clear timeline
+        _scoreboard_html(prev_scores),           # refresh scoreboard
+        _vis_js_graph_html(init_discovered, [], svc),   # live graph
+        _replay_html([], {}, [], svc),           # empty replay
         # Ground truth button (enhanced)
         f'<div style="text-align:center;padding:8px 0">'
         f'<a href="/graph/ground-truth?seed={seed}&difficulty={difficulty}" '
@@ -922,7 +940,7 @@ def reset_episode(difficulty: str, custom_seed: int, _state: dict):
         f'box-shadow:0 2px 8px rgba(79,70,229,0.3);transition:all 0.2s ease">'
         f'\U0001f50d View Ground Truth Graph '
         f'<span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:6px;'
-        f'font-size:10px;font-weight:600">seed #{seed}</span>'
+        f'font-size:10px;font-weight:600">seed #{seed} · {domain_display}</span>'
         f'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
         f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
         f'<path d="M6 3H3v10h10v-3"/><path d="M9 2h5v5"/><path d="M14 2L7 9"/></svg></a></div>',
@@ -1210,6 +1228,13 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
             info="easy = clean | medium = 1 noise | hard = 2 noise",
             scale=2,
         )
+        domain_dd = gr.Dropdown(
+            DOMAIN_CHOICES,
+            value="sre",
+            label="Domain",
+            info="Plugin interface — swap the causal graph domain",
+            scale=2,
+        )
         seed_sl = gr.Slider(
             -1, 9999, value=-1, step=1,
             label="Custom Seed  (-1 uses difficulty preset)",
@@ -1320,8 +1345,17 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
         [affected_cb, conf_sl, svc_dd],
     )
 
+    domain_dd.change(
+        lambda d: (
+            gr.update(choices=_services_for_domain(d)),
+            gr.update(choices=_services_for_domain(d)),
+        ),
+        [domain_dd],
+        [svc_dd, affected_cb],
+    )
+
     reset_btn.click(
-        reset_episode, [diff_radio, seed_sl, session],
+        reset_episode, [diff_radio, seed_sl, domain_dd, session],
         [session, chatbot, budget_bar, banner, score_card,
          svc_dd, step_btn, affected_cb, action_radio, state_panel,
          discovered_panel, timeline_panel, scoreboard_panel,

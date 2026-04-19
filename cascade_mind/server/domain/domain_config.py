@@ -31,3 +31,7 @@ class DomainConfig:
             "submit_hypothesis":     "Submit Hypothesis",
         }
     )
+    # Per-node metadata: {node_name: {"tier": int, "type": str, "has_alt": bool}}
+    node_metadata: dict[str, dict] = field(default_factory=dict)
+    # Real-world incident archetypes injected into the reset observation
+    incident_archetypes: tuple[str, ...] = field(default_factory=tuple)
