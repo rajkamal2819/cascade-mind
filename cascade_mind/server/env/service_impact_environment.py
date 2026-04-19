@@ -47,12 +47,12 @@ except ImportError:
 
 # Dual-import for in-repo vs Docker ------------------------------------------
 try:
-    from ..models import ServiceImpactAction, ServiceImpactObservation, ServiceImpactState
+    from ...models import ServiceImpactAction, ServiceImpactObservation, ServiceImpactState
 except ImportError:
-    from models import ServiceImpactAction, ServiceImpactObservation, ServiceImpactState  # type: ignore
+    from cascade_mind.models import ServiceImpactAction, ServiceImpactObservation, ServiceImpactState  # type: ignore
 
 try:
-    from .graph_builder import (
+    from ..graph.graph_builder import (
         build_service_graph,
         get_affected_services,
         get_direct_dependents,
@@ -62,7 +62,7 @@ try:
         SERVICE_METADATA,
     )
 except ImportError:
-    from server.graph_builder import (  # type: ignore
+    from cascade_mind.server.graph.graph_builder import (  # type: ignore
         build_service_graph,
         get_affected_services,
         get_direct_dependents,
@@ -73,31 +73,31 @@ except ImportError:
     )
 
 try:
-    from .llm_simulator import LLMSimulator, SimulatorCache
+    from ..simulator.llm_simulator import LLMSimulator, SimulatorCache
 except ImportError:
-    from server.llm_simulator import LLMSimulator, SimulatorCache  # type: ignore
+    from cascade_mind.server.simulator.llm_simulator import LLMSimulator, SimulatorCache  # type: ignore
 
 try:
-    from .trajectory_logger import TrajectoryLogger
+    from ..trajectory.trajectory_logger import TrajectoryLogger
 except ImportError:
     try:
-        from server.trajectory_logger import TrajectoryLogger  # type: ignore
+        from cascade_mind.server.trajectory.trajectory_logger import TrajectoryLogger  # type: ignore
     except ImportError:
         TrajectoryLogger = None  # type: ignore
 
 try:
-    from .reward_orchestrator import RewardOrchestrator
+    from ..reward.reward_orchestrator import RewardOrchestrator
 except ImportError:
     try:
-        from server.reward_orchestrator import RewardOrchestrator  # type: ignore
+        from cascade_mind.server.reward.reward_orchestrator import RewardOrchestrator  # type: ignore
     except ImportError:
         RewardOrchestrator = None  # type: ignore
 
 try:
-    from .mutation_engine import MutationEngine
+    from ..graph.mutation_engine import MutationEngine
 except ImportError:
     try:
-        from server.mutation_engine import MutationEngine  # type: ignore
+        from cascade_mind.server.graph.mutation_engine import MutationEngine  # type: ignore
     except ImportError:
         MutationEngine = None  # type: ignore
 
@@ -105,7 +105,7 @@ try:
     from .curriculum_scheduler import CurriculumScheduler
 except ImportError:
     try:
-        from server.curriculum_scheduler import CurriculumScheduler  # type: ignore
+        from cascade_mind.server.env.curriculum_scheduler import CurriculumScheduler  # type: ignore
     except ImportError:
         CurriculumScheduler = None  # type: ignore
 

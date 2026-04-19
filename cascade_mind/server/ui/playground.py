@@ -15,22 +15,22 @@ from typing import List, Optional
 import gradio as gr
 
 try:
-    from .graph_builder import (
+    from ..graph.graph_builder import (
         SERVICES, SERVICE_METADATA, BASE_EDGES, CANDIDATE_EDGES,
         build_service_graph, get_affected_services,
     )
-    from .service_impact_environment import ServiceImpactEnvironment
+    from ..env.service_impact_environment import ServiceImpactEnvironment
 except ImportError:
-    from server.graph_builder import (  # type: ignore
+    from cascade_mind.server.graph.graph_builder import (  # type: ignore
         SERVICES, SERVICE_METADATA, BASE_EDGES, CANDIDATE_EDGES,
         build_service_graph, get_affected_services,
     )
-    from server.service_impact_environment import ServiceImpactEnvironment  # type: ignore
+    from cascade_mind.server.env.service_impact_environment import ServiceImpactEnvironment  # type: ignore
 
 try:
-    from ..models import ServiceImpactAction
+    from ...models import ServiceImpactAction
 except ImportError:
-    from models import ServiceImpactAction  # type: ignore
+    from cascade_mind.models import ServiceImpactAction  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -717,7 +717,10 @@ function setSpeed(s){{speed=s}}
 def build_ground_truth_html(seed: int = 0, difficulty: str = "easy") -> str:
     """Build a standalone HTML page showing the full ground-truth graph."""
     G = build_service_graph(seed=seed)
-    from .graph_builder import get_scenario  # lazy to avoid circular at module level
+    try:
+        from ..graph.graph_builder import get_scenario  # type: ignore
+    except ImportError:
+        from cascade_mind.server.graph.graph_builder import get_scenario  # type: ignore
     scenario = get_scenario(G, seed)
     changed = scenario["changed_service"]
     affected = get_affected_services(G, changed)

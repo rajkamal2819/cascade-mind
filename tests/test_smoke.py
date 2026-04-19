@@ -20,11 +20,11 @@ import sys
 # Disable LLM for smoke tests — exercises fallback templates (no HF_TOKEN needed)
 os.environ["LLM_SIMULATOR_ENABLED"] = "false"
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from models import ServiceImpactAction
-from server.service_impact_environment import ServiceImpactEnvironment
-from server.graph_builder import (
+from cascade_mind.models import ServiceImpactAction
+from cascade_mind.server.env.service_impact_environment import ServiceImpactEnvironment
+from cascade_mind.server.graph.graph_builder import (
     build_service_graph,
     get_affected_services,
     get_all_services,
@@ -338,7 +338,7 @@ check(
 print("\n=== Trajectory Logging (v2) ===")
 
 import tempfile, json
-from server.trajectory_logger import TrajectoryLogger
+from cascade_mind.server.trajectory.trajectory_logger import TrajectoryLogger
 
 with tempfile.TemporaryDirectory() as tmpdir:
     tlogger = TrajectoryLogger(tmpdir)
@@ -453,7 +453,7 @@ check(
 # ── 9. RewardOrchestrator (v2) ───────────────────────────────────────────────
 print("\n=== RewardOrchestrator (v2) ===")
 
-from server.reward_orchestrator import RewardOrchestrator, PROFILES
+from cascade_mind.server.reward.reward_orchestrator import RewardOrchestrator, PROFILES
 
 orch = RewardOrchestrator()
 
@@ -538,7 +538,7 @@ check(
 # ── Section 10: MutationEngine ────────────────────────────────────────────────
 print("\n─── Section 10: MutationEngine ───")
 
-from server.mutation_engine import MutationEngine, DEFAULT_SCHEDULES, MutationConfig
+from cascade_mind.server.graph.mutation_engine import MutationEngine, DEFAULT_SCHEDULES, MutationConfig
 
 # Easy difficulty → no mutations
 me_easy = MutationEngine(seed=42, difficulty="easy")
@@ -619,7 +619,7 @@ if mutation_found:
 # ── Section 11: CurriculumScheduler ──────────────────────────────────────────
 print("\n─── Section 11: CurriculumScheduler ───")
 
-from server.curriculum_scheduler import CurriculumScheduler, CURRICULUM_CONFIGS
+from cascade_mind.server.env.curriculum_scheduler import CurriculumScheduler, CURRICULUM_CONFIGS
 
 cs = CurriculumScheduler()
 
@@ -780,7 +780,7 @@ for test_seed in range(100):
 # ── Section 13: TrajectoryAuditor ─────────────────────────────────────────────
 print("\n─── Section 13: TrajectoryAuditor ───")
 
-from server.trajectory_auditor import TrajectoryAuditor, AuditReport
+from cascade_mind.server.trajectory.trajectory_auditor import TrajectoryAuditor, AuditReport
 
 auditor = TrajectoryAuditor()
 

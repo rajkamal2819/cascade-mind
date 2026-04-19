@@ -1,10 +1,10 @@
 """Quick LLM simulator smoke test — run with HF_TOKEN set."""
 import os, sys, tempfile
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 # HF_TOKEN must be set in environment: export HF_TOKEN=hf_...
 
-from server.llm_simulator import LLMSimulator, SimulatorCache
+from cascade_mind.server.simulator.llm_simulator import LLMSimulator, SimulatorCache
 
 cache = SimulatorCache(cache_path=tempfile.mktemp(suffix=".json"))
 sim   = LLMSimulator(hf_token=os.environ["HF_TOKEN"], cache=cache, enabled=True)

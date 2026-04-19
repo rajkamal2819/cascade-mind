@@ -49,26 +49,18 @@ def main() -> None:
     # ── Dual-import for in-repo vs installed ─────────────────────────────
     try:
         from .llm_simulator import LLMSimulator, SimulatorCache
-        from .graph_builder import (
+        from ..graph.graph_builder import (
             build_service_graph, get_scenario,
             get_direct_dependents, get_direct_dependencies,
             SERVICE_METADATA,
         )
     except ImportError:
-        try:
-            from server.llm_simulator import LLMSimulator, SimulatorCache  # type: ignore
-            from server.graph_builder import (  # type: ignore
-                build_service_graph, get_scenario,
-                get_direct_dependents, get_direct_dependencies,
-                SERVICE_METADATA,
-            )
-        except ImportError:
-            from llm_simulator import LLMSimulator, SimulatorCache  # type: ignore
-            from graph_builder import (  # type: ignore
-                build_service_graph, get_scenario,
-                get_direct_dependents, get_direct_dependencies,
-                SERVICE_METADATA,
-            )
+        from cascade_mind.server.simulator.llm_simulator import LLMSimulator, SimulatorCache  # type: ignore
+        from cascade_mind.server.graph.graph_builder import (  # type: ignore
+            build_service_graph, get_scenario,
+            get_direct_dependents, get_direct_dependencies,
+            SERVICE_METADATA,
+        )
 
     # ── Cache status check ────────────────────────────────────────────────
     cache = SimulatorCache(cache_path=args.output)

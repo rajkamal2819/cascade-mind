@@ -48,18 +48,19 @@ dev = [
 ]
 
 [project.scripts]
-server = "server.app:main"
+cascade-mind-serve = "cascade_mind.server.app:main"
+cascade-mind-bench = "scripts.benchmark:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["service_impact_env*"]
+include = ["cascade_mind*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
