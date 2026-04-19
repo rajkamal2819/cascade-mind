@@ -11,7 +11,7 @@ build/
 # Virtual environment
 .venv/
 venv/
-env/
+/env/
 
 # LLM cache (large, generated at runtime/Docker build)
 llm_sim_cache.json

@@ -20,8 +20,8 @@ COPY . /app
 # Install Python dependencies
 RUN pip install --no-cache-dir -r cascade_mind/server/requirements.txt
 
-# Install the project package itself (best-effort)
-RUN pip install --no-cache-dir -e . 2>/dev/null || true
+# Install the project package so cascade_mind is importable as a package
+RUN pip install --no-cache-dir -e .
 
 # Empty LLM cache placeholder (runtime fills via HF_TOKEN secret)
 RUN echo "{}" > /app/llm_sim_cache.json
