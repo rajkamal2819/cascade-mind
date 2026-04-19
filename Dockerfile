@@ -17,8 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy full repo
 COPY . /app
 
-# Install Python dependencies from the single source of truth
-RUN pip install --no-cache-dir -r server/requirements.txt
+# Install Python dependencies — support both old and new layout during transition
+RUN pip install --no-cache-dir -r server/requirements.txt 2>/dev/null || pip install --no-cache-dir -r cascade_mind/server/requirements.txt
 
 # Install the project package itself (best-effort)
 RUN pip install --no-cache-dir -e . 2>/dev/null || true
@@ -40,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 
 # Default command — openenv push may override this to enable the web interface
 ENV ENABLE_WEB_INTERFACE=true
-CMD ["uvicorn", "cascade_mind.server.app:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860", "--log-level", "info"]
