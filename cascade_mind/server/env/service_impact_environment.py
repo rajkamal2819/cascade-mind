@@ -109,6 +109,39 @@ except ImportError:
     except ImportError:
         CurriculumScheduler = None  # type: ignore
 
+try:
+    from .belief_tracker import BeliefTracker
+except ImportError:
+    try:
+        from cascade_mind.server.env.belief_tracker import BeliefTracker  # type: ignore
+    except ImportError:
+        BeliefTracker = None  # type: ignore
+
+try:
+    from .contradiction_engine import ContradictionEngine
+except ImportError:
+    try:
+        from cascade_mind.server.env.contradiction_engine import ContradictionEngine  # type: ignore
+    except ImportError:
+        ContradictionEngine = None  # type: ignore
+
+try:
+    from .graph_prior import GraphPrior
+except ImportError:
+    try:
+        from cascade_mind.server.env.graph_prior import GraphPrior  # type: ignore
+    except ImportError:
+        GraphPrior = None  # type: ignore
+
+try:
+    from ..reward.process_reward import compute_intermediate_fbeta, compute_step_reward
+except ImportError:
+    try:
+        from cascade_mind.server.reward.process_reward import compute_intermediate_fbeta, compute_step_reward  # type: ignore
+    except ImportError:
+        compute_intermediate_fbeta = None  # type: ignore
+        compute_step_reward = None  # type: ignore
+
 import networkx as nx
 
 
@@ -200,6 +233,15 @@ class ServiceImpactEnvironment(
             self._curriculum = None
         self._curriculum_config = None  # set per-episode in reset()
 
+        # ── World Modeling components (v3) ──────────────────────────────
+        # Instantiated once; reset per-episode
+        self._belief_tracker = BeliefTracker(all_services=[]) if BeliefTracker else None
+        self._contradiction_engine = ContradictionEngine() if ContradictionEngine else None
+        self._graph_prior = GraphPrior() if GraphPrior else None
+        self._world_version: int = 0
+        self._prev_correct_affected: Set[str] = set()
+        self._prev_intermediate_fbeta: float = 0.0
+
         # Per-episode mutable state (initialised by reset())
         self._graph:            nx.DiGraph  = nx.DiGraph()
         self._all_services:     List[str]   = []
@@ -275,6 +317,22 @@ class ServiceImpactEnvironment(
         self._incident_context = None
         self._free_action_uses = {"query_runbook": 0, "query_changelog": 0, "query_monitoring": 0}
 
+        # ── World Modeling reset (v3) ────────────────────────────────────
+        # Update graph prior with PREVIOUS episode's ground truth (if any)
+        if self._graph_prior and self._prev_correct_affected:
+            self._graph_prior.update(
+                seed_service=self._changed_service,
+                true_affected=frozenset(self._prev_correct_affected),
+            )
+        self._world_version = 0
+        self._prev_correct_affected = set()
+        self._prev_intermediate_fbeta = 0.0
+        if self._belief_tracker is not None:
+            self._belief_tracker = BeliefTracker(all_services=self._all_services)  # type: ignore[arg-type]
+            self._belief_tracker.reset(self._changed_service)
+        if self._contradiction_engine is not None:
+            self._contradiction_engine.reset()
+
         # Log reset event
         if self._trajectory_logger:
             self._trajectory_logger.log_reset(
@@ -302,6 +360,9 @@ class ServiceImpactEnvironment(
             task_difficulty=self._task_difficulty,
             episode_ended=False,
             reward_profile=profile_name,
+            graph_prior=self._graph_prior.get_prior() if self._graph_prior else None,
+            contradictions=[],
+            world_version=0,
         )
 
         # Generate LLM incident context (cached per seed — fast on cache hit)
@@ -334,6 +395,11 @@ class ServiceImpactEnvironment(
                 f"{self._reward_profile.description}"
             )
 
+        # Graph prior hint (v3: session-level warm-start)
+        prior_hint = ""
+        if self._graph_prior and self._graph_prior.episode_count > 0:
+            prior_hint = "\n\n" + self._graph_prior.to_observation_text(k=6) + "\n"
+
         # Curriculum hints (v2: difficulty-adaptive guidance)
         curriculum_hint = ""
         if self._curriculum is not None and self._curriculum_config is not None:
@@ -355,6 +421,7 @@ class ServiceImpactEnvironment(
                 f"Query budget: {self._max_queries}.\n"
                 f"Hint: {scenario['hint']}"
                 f"{curriculum_hint}\n"
+                f"{prior_hint}"
                 f"Budget actions: query_dependents, query_dependencies. "
                 f"Free actions: query_runbook, query_changelog, query_monitoring. "
                 f"Hypothesis check: submit_hypothesis (costs 1 query). "
@@ -363,6 +430,7 @@ class ServiceImpactEnvironment(
             ),
             done=False,
             reward=None,
+            graph_prior=self._graph_prior.get_prior() if self._graph_prior else None,
         )
 
     def step(
@@ -515,6 +583,63 @@ class ServiceImpactEnvironment(
             f"{self._pending_mutation_alert}"
         )
 
+        # ── World Modeling updates (v3) ───────────────────────────────────
+        new_belief: dict | None = None
+        ig: float | None = None
+        ifbeta: float | None = None
+        belief_drift: float | None = None
+        contradiction_count: int = 0
+        step_process_reward: float | None = None
+
+        true_affected_frozen = frozenset(self._correct_affected)
+
+        # World version bump on mutation
+        if self._pending_mutation_alert:
+            self._world_version += 1
+            prev_set = self._prev_correct_affected
+            if prev_set:
+                drift_union = prev_set | self._correct_affected
+                belief_drift = (
+                    len(prev_set.symmetric_difference(self._correct_affected)) / len(drift_union)
+                    if drift_union else 0.0
+                )
+            self._prev_correct_affected = set(self._correct_affected)
+
+        if self._belief_tracker is not None:
+            new_belief = self._belief_tracker.update(
+                action_type=action.action_type,
+                queried_service=svc,
+                llm_text=llm_text,
+                true_neighbors=true_affected_frozen,
+            )
+            ig = self._belief_tracker.compute_information_gain(true_affected_frozen)
+            ifbeta = self._belief_tracker.intermediate_fbeta(true_affected_frozen)
+
+        if self._contradiction_engine is not None:
+            contradiction_event = self._contradiction_engine.check(
+                action_type=action.action_type,
+                queried_service=svc,
+                llm_text=llm_text,
+            )
+            contradiction_count = self._contradiction_engine.count
+            if contradiction_event:
+                obs_message += f"\n\n[CONTRADICTION DETECTED] {contradiction_event.to_text()}"
+            # Sync to state
+            self._state.contradictions = self._contradiction_engine.descriptions()
+
+        # Process reward (step-level dense signal)
+        if compute_step_reward is not None and ig is not None and ifbeta is not None:
+            step_process_reward = compute_step_reward(
+                information_gain=ig,
+                prev_fbeta=self._prev_intermediate_fbeta,
+                current_fbeta=ifbeta,
+                new_contradictions=1 if (self._contradiction_engine and contradiction_count > (self._contradiction_engine.count - 1)) else 0,
+            )
+            self._prev_intermediate_fbeta = ifbeta
+
+        # Update world_version in state
+        self._state.world_version = self._world_version
+
         # Log step to trajectory
         if self._trajectory_logger:
             self._trajectory_logger.log_step(
@@ -534,6 +659,12 @@ class ServiceImpactEnvironment(
             message=obs_message,
             done=done,
             reward=-0.4 if done else step_reward,
+            belief_state=new_belief,
+            information_gain=ig,
+            intermediate_fbeta=ifbeta,
+            world_version=self._world_version,
+            belief_drift=belief_drift,
+            contradiction_count=contradiction_count,
         )
 
     @property

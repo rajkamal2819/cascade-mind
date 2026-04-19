@@ -61,6 +61,11 @@ def _empty_state() -> dict:
         steps=[],         # [{n, action, target, cost, budget_left}]
         scores=[],        # [{seed, diff, score, steps_used, budget_left}]
         difficulty="easy", seed=0,
+        # v3: world modeling
+        belief_state={},        # {service: confidence}
+        ig_history=[],          # [float] per step
+        world_version=0,
+        contradiction_count=0,
     )
 
 
@@ -885,6 +890,11 @@ def reset_episode(difficulty: str, custom_seed: int, _state: dict):
         edges_seen=[],
         steps=[], scores=prev_scores,
         difficulty=difficulty, seed=seed,
+        # v3: world modeling
+        belief_state={},
+        ig_history=[],
+        world_version=0,
+        contradiction_count=0,
     )
     chat = [{"role": "assistant", "content": f"**Incident triggered!**\n\n{obs.message}"}]
     return (
@@ -916,6 +926,9 @@ def reset_episode(difficulty: str, custom_seed: int, _state: dict):
         f'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" '
         f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
         f'<path d="M6 3H3v10h10v-3"/><path d="M9 2h5v5"/><path d="M14 2L7 9"/></svg></a></div>',
+        # v3: world model panels reset
+        _belief_heatmap_html({}, 0, 0),
+        _ig_sparkline_html([]),
     )
 
 
@@ -1010,6 +1023,25 @@ def execute_step(action_type, service_name, affected, confidence, chat, state):
         ))
         state["scores"] = scores
 
+    # ── World Modeling state updates (v3) ─────────────────────────────────
+    if obs.belief_state:
+        state["belief_state"] = obs.belief_state
+    if obs.world_version is not None:
+        state["world_version"] = obs.world_version
+    if obs.contradiction_count is not None:
+        state["contradiction_count"] = obs.contradiction_count
+    if obs.information_gain is not None:
+        ig_hist = state.get("ig_history", [])
+        ig_hist.append(round(obs.information_gain, 4))
+        state["ig_history"] = ig_hist
+
+    belief_html = _belief_heatmap_html(
+        state.get("belief_state", {}),
+        state.get("world_version", 0),
+        state.get("contradiction_count", 0),
+    )
+    ig_html = _ig_sparkline_html(state.get("ig_history", []))
+
     # Build replay only when episode is done
     replay = ""
     if obs.done:
@@ -1028,6 +1060,8 @@ def execute_step(action_type, service_name, affected, confidence, chat, state):
         _scoreboard_html(state.get("scores", [])),
         _vis_js_graph_html(discovered, edges_seen, state.get("changed", ""), obs.done),
         replay,
+        belief_html,
+        ig_html,
     ]
 
 
@@ -1039,9 +1073,83 @@ def toggle_fields(action_type):
     )
 
 
-# ---------------------------------------------------------------------------
-# Theme / CSS  (consumed by mount_gradio_app in app.py -- NOT in gr.Blocks)
-# ---------------------------------------------------------------------------
+def _belief_heatmap_html(belief_state: dict, world_version: int = 0, contradiction_count: int = 0) -> str:
+    """Render a colour-coded belief-state heatmap as HTML."""
+    if not belief_state:
+        return (
+            '<div style="color:#9ca3af;font-size:13px;text-align:center;padding:24px">'
+            'Belief state will appear after the first query.</div>'
+        )
+    sorted_items = sorted(belief_state.items(), key=lambda x: x[1], reverse=True)
+    rows = []
+    for svc, conf in sorted_items:
+        if conf < 0.001:
+            continue
+        pct = int(conf * 100)
+        # Colour: green → amber → red based on confidence
+        if conf >= 0.7:
+            bar_color = "#22c55e"
+        elif conf >= 0.4:
+            bar_color = "#f59e0b"
+        else:
+            bar_color = "#ef4444"
+        rows.append(
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">'
+            f'<span style="width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+            f'font-family:monospace;color:#374151">{svc}</span>'
+            f'<div style="flex:1;background:#f3f4f6;border-radius:4px;height:14px">'
+            f'<div style="width:{pct}%;background:{bar_color};height:14px;border-radius:4px;'
+            f'transition:width 0.3s ease"></div></div>'
+            f'<span style="width:36px;text-align:right;color:#6b7280">{pct}%</span>'
+            f'</div>'
+        )
+
+    version_badge = (
+        f'<span style="background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:700;'
+        f'padding:2px 8px;border-radius:12px;margin-left:8px">v{world_version}</span>'
+    )
+    contradict_badge = ""
+    if contradiction_count > 0:
+        contradict_badge = (
+            f'<span style="background:#fee2e2;color:#b91c1c;font-size:11px;font-weight:700;'
+            f'padding:2px 8px;border-radius:12px;margin-left:8px">'
+            f'⚡ {contradiction_count} contradiction{"s" if contradiction_count != 1 else ""}</span>'
+        )
+
+    header = (
+        f'<div style="font-weight:700;font-size:13px;color:#111827;margin-bottom:10px">'
+        f'Belief State{version_badge}{contradict_badge}</div>'
+    )
+    return (
+        '<div style="padding:12px;font-family:system-ui">'
+        + header
+        + "".join(rows)
+        + "</div>"
+    )
+
+
+def _ig_sparkline_html(ig_history: list[float]) -> str:
+    """Render a mini sparkline of information-gain values."""
+    if not ig_history:
+        return ""
+    n = len(ig_history)
+    width = min(n * 18, 340)
+    max_v = max(ig_history) if max(ig_history) > 0 else 1.0
+    height = 40
+    points = []
+    for i, v in enumerate(ig_history):
+        x = int(i / max(n - 1, 1) * (width - 4)) + 2
+        y = height - 4 - int(v / max_v * (height - 8))
+        points.append(f"{x},{y}")
+    poly = " ".join(points)
+    return (
+        f'<div style="margin-top:6px">'
+        f'<div style="font-size:11px;color:#6b7280;margin-bottom:2px">IG per step</div>'
+        f'<svg width="{width}" height="{height}" style="border:1px solid #e5e7eb;border-radius:4px;background:#f9fafb">'
+        f'<polyline points="{poly}" fill="none" stroke="#4f46e5" stroke-width="2"/>'
+        f'</svg></div>'
+    )
+
 
 PLAYGROUND_CSS = """
 .gradio-container { background: #f9fafb !important; max-width: 100% !important; }
@@ -1162,7 +1270,7 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
             # Action timeline (compact)
             timeline_panel = gr.HTML("")
             with gr.Tabs():
-                with gr.Tab("\U0001f4cb Investigation Log"):
+                with gr.Tab("📋 Investigation Log"):
                     chatbot = gr.Chatbot(
                         value=[],
                         label="Investigation Log",
@@ -1171,13 +1279,22 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
                         autoscroll=True,
                         placeholder="Start a new episode to begin investigating...",
                     )
-                with gr.Tab("\U0001f578\ufe0f Live Knowledge Graph"):
+                with gr.Tab("🕸️ Live Knowledge Graph"):
                     graph_panel = gr.HTML(
                         _vis_js_graph_html({}, [], ""),
                     )
-                with gr.Tab("\U0001f3ac Trajectory Replay"):
+                with gr.Tab("🎬 Trajectory Replay"):
                     replay_panel = gr.HTML(
                         _replay_html([], {}, [], ""),
+                    )
+                with gr.Tab("🧠 World Model"):
+                    belief_panel = gr.HTML(
+                        _belief_heatmap_html({}, 0, 0),
+                        label="Belief State Heatmap",
+                    )
+                    ig_panel = gr.HTML(
+                        _ig_sparkline_html([]),
+                        label="Information Gain Timeline",
                     )
             score_card = gr.HTML("")
             with gr.Accordion("Environment State", open=False):
@@ -1208,7 +1325,8 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
         [session, chatbot, budget_bar, banner, score_card,
          svc_dd, step_btn, affected_cb, action_radio, state_panel,
          discovered_panel, timeline_panel, scoreboard_panel,
-         graph_panel, replay_panel, gt_link],
+         graph_panel, replay_panel, gt_link,
+         belief_panel, ig_panel],
     )
 
     step_btn.click(
@@ -1216,5 +1334,5 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
         [action_radio, svc_dd, affected_cb, conf_sl, chatbot, session],
         [session, chatbot, budget_bar, score_card, step_btn, affected_cb, state_panel,
          discovered_panel, timeline_panel, scoreboard_panel,
-         graph_panel, replay_panel],
+         graph_panel, replay_panel, belief_panel, ig_panel],
     )

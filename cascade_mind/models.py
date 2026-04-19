@@ -26,7 +26,7 @@ State (internal bookkeeping, exposed via /state):
 """
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import Field
 
@@ -153,6 +153,56 @@ class ServiceImpactObservation(Observation):
         ),
     )
 
+    # ── World Modeling fields (v3) ──────────────────────────────────────
+    belief_state: Optional[Dict[str, float]] = Field(
+        default=None,
+        description=(
+            "Per-service confidence [0.0–1.0] representing the agent's current "
+            "internal world model. Updated after every query based on mentions, "
+            "contradictions, and hypothesis feedback."
+        ),
+    )
+    information_gain: Optional[float] = Field(
+        default=None,
+        description=(
+            "Entropy reduction this step: Jaccard improvement of the agent's known "
+            "set vs the true affected set. 0.0 = no new information, 1.0 = perfect step."
+        ),
+    )
+    intermediate_fbeta: Optional[float] = Field(
+        default=None,
+        description=(
+            "F-beta(β=2) score the agent would receive if it submitted right now "
+            "using all services with belief_state > 0.5. Updated every step."
+        ),
+    )
+    world_version: int = Field(
+        default=0,
+        description=(
+            "Increments each time a MutationEngine event fires. "
+            "Agent should re-investigate when world_version increases."
+        ),
+    )
+    belief_drift: Optional[float] = Field(
+        default=None,
+        description=(
+            "Jaccard distance between the previous and current correct_affected set. "
+            "Non-zero only after a mutation — indicates how stale the agent's world model is."
+        ),
+    )
+    contradiction_count: int = Field(
+        default=0,
+        description="Running count of tool-output contradictions detected this episode.",
+    )
+    graph_prior: Optional[Dict[str, float]] = Field(
+        default=None,
+        description=(
+            "Session-level edge confidence estimates from previous episodes. "
+            "Keys are 'service_a→service_b', values are [0.0–1.0] frequency. "
+            "Provided at reset() if prior episodes exist in this session."
+        ),
+    )
+
 
 # ---------------------------------------------------------------------------
 # State
@@ -191,4 +241,20 @@ class ServiceImpactState(State):
     reward_profile: str = Field(
         default="recall_heavy",
         description="Active reward profile for this episode: recall_heavy | balanced | precision_heavy | efficiency.",
+    )
+    # ── World Modeling state (v3) ─────────────────────────────────────────
+    graph_prior: Optional[Dict[str, float]] = Field(
+        default=None,
+        description=(
+            "Session-level edge confidence from prior episodes. "
+            "Keys are 'service_a→service_b', values are [0.0–1.0] hit frequency."
+        ),
+    )
+    contradictions: List[str] = Field(
+        default_factory=list,
+        description="Human-readable descriptions of tool contradictions detected this episode.",
+    )
+    world_version: int = Field(
+        default=0,
+        description="Current graph mutation version; increments on each MutationEngine event.",
     )

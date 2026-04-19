@@ -258,6 +258,77 @@ async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
     html = build_ground_truth_html(seed=seed, difficulty=difficulty)
     return HTMLResponse(content=html)
 
+
+# ── World Modeling API routes (v3) ─────────────────────────────────────────
+
+@app.get("/belief", tags=["world-model"])
+async def get_belief_state():
+    """Return the current belief state (per-service confidence) for the active episode."""
+    env = _get_env()
+    if env is None:
+        return JSONResponse({"error": "No active environment"}, status_code=503)
+    bt = getattr(env, "_belief_tracker", None)
+    if bt is None:
+        return JSONResponse({"belief_state": {}, "note": "BeliefTracker not available"})
+    return JSONResponse({
+        "belief_state": bt.belief,
+        "world_version": getattr(env, "_world_version", 0),
+    })
+
+
+@app.get("/prior", tags=["world-model"])
+async def get_graph_prior():
+    """Return the session-level graph prior (edge confidence from previous episodes)."""
+    env = _get_env()
+    if env is None:
+        return JSONResponse({"error": "No active environment"}, status_code=503)
+    gp = getattr(env, "_graph_prior", None)
+    if gp is None:
+        return JSONResponse({"prior": {}, "episodes": 0, "note": "GraphPrior not available"})
+    return JSONResponse({
+        "prior": gp.get_prior(),
+        "episodes": gp.episode_count,
+        "top_10": gp.top_k(10),
+    })
+
+
+@app.get("/contradictions", tags=["world-model"])
+async def get_contradictions():
+    """Return all tool contradictions detected in the current episode."""
+    env = _get_env()
+    if env is None:
+        return JSONResponse({"error": "No active environment"}, status_code=503)
+    ce = getattr(env, "_contradiction_engine", None)
+    if ce is None:
+        return JSONResponse({"contradictions": [], "count": 0, "note": "ContradictionEngine not available"})
+    return JSONResponse({
+        "contradictions": ce.descriptions(),
+        "count": ce.count,
+    })
+
+
+@app.get("/export/grpo", tags=["world-model"])
+async def export_grpo(min_reward: float = 0.0, output: str = "/tmp/grpo_export.jsonl"):
+    """Export completed trajectories as a GRPO training JSONL file."""
+    import os
+    try:
+        from .trajectory.trajectory_auditor import TrajectoryAuditor
+    except ImportError:
+        from cascade_mind.server.trajectory.trajectory_auditor import TrajectoryAuditor  # type: ignore
+    trajectory_dir = os.environ.get("TRAJECTORY_DIR", "/tmp/cascade_trajectories")
+    auditor = TrajectoryAuditor(trajectory_dir)
+    count = auditor.export_grpo_jsonl(output_path=output, min_reward=min_reward)
+    return JSONResponse({
+        "exported": count,
+        "output_path": output,
+        "min_reward": min_reward,
+    })
+
+
+def _get_env():
+    """Retrieve the running ServiceImpactEnvironment instance from the app state."""
+    return getattr(app.state, "env", None)
+
 # ---------------------------------------------------------------------------
 # Evict any default openenv /web or / Gradio route so ours takes priority
 # ---------------------------------------------------------------------------

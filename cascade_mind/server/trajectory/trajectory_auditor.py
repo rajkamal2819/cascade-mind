@@ -212,6 +212,117 @@ class TrajectoryAuditor:
                 continue
         return reports
 
+    # ── GRPO Export ─────────────────────────────────────────────────────────
+
+    def export_grpo_jsonl(
+        self,
+        output_path: str | Path,
+        min_reward: float = 0.0,
+        include_process_rewards: bool = True,
+    ) -> int:
+        """Export trajectories in GRPO training format.
+
+        Each line in the output JSONL has the schema::
+
+            {
+                "prompt":    str,          # episode reset message (system context)
+                "response":  str,          # concatenated agent tool calls
+                "reward":    float,        # terminal F-beta reward
+                "metadata":  { ... }       # seed, difficulty, strategy, …
+            }
+
+        Args:
+            output_path: Destination JSONL file.
+            min_reward: Only export episodes with reward >= this threshold.
+            include_process_rewards: Attach per-step intermediate rewards
+                when ``world_version`` / ``intermediate_fbeta`` fields exist.
+
+        Returns:
+            Number of episodes exported.
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        exported = 0
+
+        for log_file in sorted(self._dir.glob("episode_*.jsonl")):
+            try:
+                seed = int(log_file.stem.split("_")[1])
+            except (ValueError, IndexError):
+                continue
+
+            steps = self._load_steps(log_file)
+            if not steps:
+                continue
+
+            # Terminal reward is the reward on the last step
+            terminal_reward = 0.0
+            for s in reversed(steps):
+                if s.get("reward") is not None:
+                    terminal_reward = float(s["reward"])
+                    break
+
+            if terminal_reward < min_reward:
+                continue
+
+            # Build prompt from reset metadata (first step)
+            first = steps[0]
+            prompt = first.get("message", "") or first.get("observation", "")
+
+            # Build response as newline-separated action texts
+            response_parts: list[str] = []
+            process_rewards: list[float] = []
+            for s in steps:
+                action = s.get("action", "")
+                if action:
+                    response_parts.append(str(action))
+                if include_process_rewards:
+                    ig   = s.get("information_gain") or 0.0
+                    dfb  = s.get("intermediate_fbeta") or 0.0
+                    process_rewards.append(round(float(ig) * 0.1 + float(dfb) * 0.05, 4))
+
+            record: Dict[str, Any] = {
+                "prompt": prompt,
+                "response": "\n".join(response_parts),
+                "reward": round(terminal_reward, 4),
+                "metadata": {
+                    "seed": seed,
+                    "difficulty": first.get("difficulty", "unknown"),
+                    "strategy": self._classify_strategy(steps),
+                    "steps": len(steps),
+                },
+            }
+            if include_process_rewards and process_rewards:
+                record["process_rewards"] = process_rewards
+
+            with open(output_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record) + "\n")
+
+            exported += 1
+
+        return exported
+
+    # ── Internal helpers ────────────────────────────────────────────────────
+
+    def _load_steps(self, log_file: Path) -> List[Dict[str, Any]]:
+        steps: List[Dict[str, Any]] = []
+        try:
+            with open(log_file, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        steps.append(json.loads(line))
+        except Exception:
+            pass
+        return steps
+
+    def _classify_strategy(self, steps: List[Dict[str, Any]]) -> str:
+        """Re-expose the private method for GRPO export."""
+        # Delegate to the existing classification logic if available.
+        try:
+            return self._get_strategy(steps)  # type: ignore[attr-defined]
+        except AttributeError:
+            return "unknown"
+
     def summary(self, reports: Optional[List[AuditReport]] = None) -> Dict[str, Any]:
         """Produce a summary across all audited episodes."""
         if reports is None:
