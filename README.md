@@ -1,21 +1,3 @@
----
-title: cascade-mind
-colorFrom: gray
-colorTo: gray
-sdk: docker
-app_port: 7860
-pinned: false
-tags:
-  - openenv
-  - sre
-  - microservices
-  - llm
-  - reinforcement-learning
-  - incident-response
-  - networkx
-base_path: /web
----
-
 <div align="center">
 
 # 🧠 cascade-mind
