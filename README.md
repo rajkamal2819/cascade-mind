@@ -186,7 +186,7 @@ graph TB
 
 ---
 
-## Episode Flow (Detailed)
+## Runtime Architecture — Episode Lifecycle
 
 ![Episode Flow](https://raw.githubusercontent.com/rajkamal2819/cascade-mind/main/assets/episode_flow.png)
 
