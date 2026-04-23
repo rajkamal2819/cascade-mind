@@ -145,31 +145,44 @@ def _score_html(msg: str, reward: float) -> str:
     f_m = re.search(r"F-beta\(.*?\)=([\d.]+)", msg)
     p_m = re.search(r"Precision=([\d.]+)", msg)
     r_m = re.search(r"Recall=([\d.]+)", msg)
+    b_m = re.search(r"Brier\)=([\d.]+)", msg)
     fbeta = float(f_m.group(1)) if f_m else reward
     prec  = float(p_m.group(1)) if p_m else 0.0
     rec   = float(r_m.group(1)) if r_m else 0.0
+    brier = float(b_m.group(1)) if b_m else None
     pct   = int(fbeta * 100)
     c     = "#059669" if pct >= 70 else ("#d97706" if pct >= 40 else "#dc2626")
     grade = "EXCELLENT" if pct >= 80 else ("GOOD" if pct >= 60 else ("FAIR" if pct >= 40 else "POOR"))
+    brier_tile = ""
+    if brier is not None:
+        bc = "#6366f1" if brier >= 0.7 else ("#f59e0b" if brier >= 0.5 else "#9ca3af")
+        brier_tile = (
+            f'<div style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:10px">'
+            f'<div style="font-size:9px;color:#9ca3af;font-weight:700;letter-spacing:0.5px">CALIBRATION</div>'
+            f'<div style="font-size:22px;font-weight:800;color:{bc}">{brier:.0%}</div></div>'
+        )
+    grid_cols = "1fr 1fr 1fr" if brier is not None else "1fr 1fr"
+    grid_width = "320px" if brier is not None else "220px"
     return (
         f'<div style="background:#fff;border-top:4px solid {c};border-radius:10px;'
         f'padding:24px 20px;margin-top:10px;text-align:center;'
         f'box-shadow:0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04)">'
         f'<div style="font-size:10px;color:#9ca3af;font-weight:700;letter-spacing:1.2px;'
-        f'margin-bottom:6px">EPISODE SCORE &middot; F-beta (b=2)</div>'
+        f'margin-bottom:6px">EPISODE SCORE &middot; F-beta + Calibration</div>'
         f'<div style="font-size:56px;font-weight:900;color:{c};line-height:1">{pct}%</div>'
         f'<div style="font-size:12px;color:{c};font-weight:700;margin:4px 0 14px;'
         f'letter-spacing:0.5px">{grade}</div>'
         f'<div style="background:#f3f4f6;border-radius:99px;height:8px;overflow:hidden;'
         f'margin:0 auto 14px;max-width:180px">'
         f'<div style="width:{pct}%;height:100%;background:{c};border-radius:99px"></div></div>'
-        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:220px;margin:0 auto">'
+        f'<div style="display:grid;grid-template-columns:{grid_cols};gap:10px;max-width:{grid_width};margin:0 auto">'
         f'<div style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:10px">'
         f'<div style="font-size:9px;color:#9ca3af;font-weight:700;letter-spacing:0.5px">PRECISION</div>'
         f'<div style="font-size:22px;font-weight:800;color:#111827">{prec:.0%}</div></div>'
         f'<div style="background:#fafafa;border:1px solid #e5e7eb;border-radius:8px;padding:10px">'
         f'<div style="font-size:9px;color:#9ca3af;font-weight:700;letter-spacing:0.5px">RECALL</div>'
-        f'<div style="font-size:22px;font-weight:800;color:#111827">{rec:.0%}</div></div></div></div>'
+        f'<div style="font-size:22px;font-weight:800;color:#111827">{rec:.0%}</div></div>'
+        f'{brier_tile}</div></div>'
     )
 
 
@@ -1336,7 +1349,7 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
             "**Free:** `query_runbook` `query_changelog` `query_monitoring` "
             "`query_service_health` `query_topology_diff`\n\n"
             "**Terminal:** `submit`\n\n"
-            "Score = F-beta (b=2). Recall counts 4x more than precision."
+            "Score = 80% F-beta (b=2) + 20% Brier calibration. Recall counts 4x more than precision. Brier rewards accurate confidence estimates."
         )
 
     # Event wiring
