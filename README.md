@@ -419,7 +419,7 @@ $$F_\beta(\beta=2) = \frac{(1 + \beta^2) \cdot P \cdot R}{\beta^2 \cdot P + R}$$
 
 **BrierScoreRubric (20%) — Novel Signal** — Rewards agents for having accurate *confidence estimates*, not just correct final answers:
 
-$$\text{Brier} = 1 - \frac{1}{|S|}\sum_{s \in S}(\text{belief}[s] - \text{true\_label}[s])^2$$
+$$\text{Brier} = 1 - \frac{1}{|S|}\sum_{s \in S}\bigl(\text{belief}[s] - y_s\bigr)^2 \qquad y_s \in \{0,1\}$$
 
 An agent that is 90% confident on truly affected nodes and 10% confident on safe nodes scores higher than one that guesses uniformly. This is a signal no other OpenEnv environment exposes — it rewards *knowing what you don't know*.
 
