@@ -85,7 +85,7 @@ The environment is domain-agnostic by design. The same World Modeling Layer, rew
 
 ## System Architecture
 
-![System Architecture](assets/arch_overview.png)
+![System Architecture](https://raw.githubusercontent.com/rajkamal2819/cascade-mind/main/assets/arch_overview.png)
 
 <details>
 <summary>View as interactive Mermaid diagram (GitHub)</summary>
@@ -188,7 +188,7 @@ graph TB
 
 ## Episode Flow (Detailed)
 
-![Episode Flow](assets/episode_flow.png)
+![Episode Flow](https://raw.githubusercontent.com/rajkamal2819/cascade-mind/main/assets/episode_flow.png)
 
 <details>
 <summary>View as interactive Mermaid diagram (GitHub)</summary>
