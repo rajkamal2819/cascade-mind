@@ -246,6 +246,11 @@ graph TB
 <details>
 <summary>View as interactive Mermaid diagram (GitHub)</summary>
 
+![Episode Flow](assets/episode_flow.png)
+
+<details>
+<summary>View as interactive Mermaid diagram (GitHub)</summary>
+
 ```mermaid
 graph TB
     subgraph PLUGIN["DomainConfig Plugin  ◄ swap to change domain ►"]
