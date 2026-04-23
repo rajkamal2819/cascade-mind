@@ -246,7 +246,7 @@ graph TB
 <details>
 <summary>View as interactive Mermaid diagram (GitHub)</summary>
 
-![Episode Flow](assets/episode_flow.png)
+![Episode Flow](https://raw.githubusercontent.com/rajkamal2819/cascade-mind/main/assets/episode_flow.png)
 
 <details>
 <summary>View as interactive Mermaid diagram (GitHub)</summary>
