@@ -85,6 +85,11 @@ The environment is domain-agnostic by design. The same World Modeling Layer, rew
 
 ## System Architecture
 
+![System Architecture](assets/arch_overview.png)
+
+<details>
+<summary>View as interactive Mermaid diagram (GitHub)</summary>
+
 ```mermaid
 graph TB
     subgraph CLIENT["🖥️  Client Layer"]
@@ -177,9 +182,16 @@ graph TB
     style INF fill:#f1f5f9,color:#475569,stroke:#94a3b8,stroke-dasharray:5 5
 ```
 
+</details>
+
 ---
 
 ## Episode Flow (Detailed)
+
+![Episode Flow](assets/episode_flow.png)
+
+<details>
+<summary>View as interactive Mermaid diagram (GitHub)</summary>
 
 ```mermaid
 graph TB
@@ -308,6 +320,8 @@ graph TB
     style DSRE fill:#dcfce7,color:#14532d,stroke:#16a34a
     style DSC fill:#dcfce7,color:#14532d,stroke:#16a34a
 ```
+
+</details>
 
 ---
 
