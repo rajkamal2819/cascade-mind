@@ -315,9 +315,8 @@ class TrajectoryAuditor:
             pass
         return steps
 
-    def _classify_strategy(self, steps: List[Dict[str, Any]]) -> str:
-        """Re-expose the private method for GRPO export."""
-        # Delegate to the existing classification logic if available.
+    def _classify_strategy_from_steps(self, steps: List[Dict[str, Any]]) -> str:
+        """Classify strategy from raw step records (used by GRPO export)."""
         try:
             return self._get_strategy(steps)  # type: ignore[attr-defined]
         except AttributeError:

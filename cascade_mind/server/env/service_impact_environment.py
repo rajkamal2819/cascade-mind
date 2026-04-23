@@ -142,6 +142,14 @@ except ImportError:
         compute_intermediate_fbeta = None  # type: ignore
         compute_step_reward = None  # type: ignore
 
+try:
+    from ..reward.rubrics import CascadeMindRubric
+except ImportError:
+    try:
+        from cascade_mind.server.reward.rubrics import CascadeMindRubric  # type: ignore
+    except ImportError:
+        CascadeMindRubric = None  # type: ignore
+
 import networkx as nx
 
 
@@ -232,6 +240,14 @@ class ServiceImpactEnvironment(
         else:
             self._reward_orchestrator = None
         self._reward_profile = None
+
+        # OpenEnv Rubric (v3): composable reward via framework's Rubric system.
+        # CascadeMindRubric = WeightedSum(FBetaRubric, BrierScoreRubric).
+        # Judges can inspect: for name, r in env.rubric.named_rubrics(): ...
+        if CascadeMindRubric is not None:
+            self.rubric = CascadeMindRubric(orchestrator=self._reward_orchestrator)
+        else:
+            self.rubric = None
         self._mutation_engine = None  # initialized per-episode in reset()
         self._pending_mutation_alert = ""  # set each step by mutation check
 
@@ -1036,8 +1052,37 @@ class ServiceImpactEnvironment(
         predicted = set(action.affected_services or [])
         correct   = self._correct_affected
 
-        # Use RewardOrchestrator if available, else fall back to hardcoded β=2
-        if self._reward_orchestrator and self._reward_profile:
+        # ── Rubric-based scoring (OpenEnv Rubric framework) ──────────────
+        # CascadeMindRubric = 80% FBetaRubric + 20% BrierScoreRubric.
+        # Judges can inspect component scores via env.rubric.named_rubrics().
+        belief_state = (
+            self._belief_tracker.belief_state.copy()
+            if self._belief_tracker and hasattr(self._belief_tracker, "belief_state")
+            else {}
+        )
+        brier_score = 0.0
+
+        if self.rubric is not None and self._reward_profile is not None:
+            self.rubric.set_submit_context(
+                predicted=predicted,
+                correct=correct,
+                all_services=self._all_services,
+                all_services_count=len(self._all_services),
+                queries_used=self._queries_used,
+                max_queries=self._max_queries,
+                profile=self._reward_profile,
+                belief_state=belief_state,
+            )
+            reward = self.rubric(action, None)
+            bd = self.rubric.last_breakdown
+            precision  = bd.get("precision", 0.0)
+            recall     = bd.get("recall",    0.0)
+            tp         = bd.get("tp", 0)
+            fp         = bd.get("fp", 0)
+            fn         = bd.get("fn", 0)
+            brier_score = bd.get("brier_score", 0.0)
+        elif self._reward_orchestrator and self._reward_profile:
+            # Fallback: RewardOrchestrator without Brier
             score_data = self._reward_orchestrator.compute(
                 predicted=predicted,
                 correct=correct,
@@ -1051,11 +1096,10 @@ class ServiceImpactEnvironment(
             recall    = score_data["recall"]
             tp, fp, fn = score_data["tp"], score_data["fp"], score_data["fn"]
         else:
-            # Fallback: original hardcoded β=2 scoring
+            # Last-resort: hardcoded β=2 scoring
             tp = len(predicted & correct)
             fp = len(predicted - correct)
             fn = len(correct   - predicted)
-
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
             recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
             beta      = 2.0
@@ -1064,8 +1108,8 @@ class ServiceImpactEnvironment(
                 if (beta ** 2 * precision + recall) > 0
                 else 0.0
             )
-            n_total    = len(self._all_services)
-            n_pred     = len(predicted)
+            n_total = len(self._all_services)
+            n_pred  = len(predicted)
             if n_total > 0 and n_pred / n_total > 0.6:
                 oversubmit_frac = min(1.0, (n_pred / n_total - 0.6) / 0.4)
                 fbeta = max(0.0, fbeta - 0.3 * oversubmit_frac)
@@ -1110,6 +1154,7 @@ class ServiceImpactEnvironment(
                 f"Episode complete! "
                 f"F-beta(β=2)={reward:.3f} | Precision={precision:.3f} | "
                 f"Recall={recall:.3f} | TP={tp} FP={fp} FN={fn} | "
+                f"Belief calibration (Brier)={brier_score:.3f} | "
                 f"Queries used: {self._queries_used}/{self._max_queries} | "
                 f"Ground truth ({len(correct)} services): {sorted(correct)} | "
                 f"Missed: {missed} | False positives: {false_positives}"
