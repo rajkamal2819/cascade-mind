@@ -1007,15 +1007,34 @@ def execute_step(action_type, service_name, affected, confidence, chat, state):
 
     # --- Track discovered services ---
     discovered = state.get("discovered", {})
+    prev_belief = state.get("belief_state", {})
+
+    # Primary: extract from response text (works when names match exactly)
     new_svcs = _extract_services(obs.message)
     for s in new_svcs:
         if s not in discovered:
             discovered[s] = action_type
+
+    # Fallback: use belief_state boosts (handles LLM-generated name mismatches)
+    if obs.belief_state:
+        for svc, conf in obs.belief_state.items():
+            if svc not in discovered and conf > prev_belief.get(svc, 0.10) + 0.02:
+                discovered[svc] = action_type
+
     state["discovered"] = discovered
 
     # --- Track edges from dependents/dependencies ---
     edges_seen = state.get("edges_seen", [])
     new_edges = _extract_edges(action_type, service_name, obs.message)
+
+    # Fallback: infer edges from belief-boosted services when text parsing found nothing
+    if action_type in ("query_dependents", "query_dependencies") and service_name and obs.belief_state:
+        for svc, conf in obs.belief_state.items():
+            if svc != service_name and conf > prev_belief.get(svc, 0.10) + 0.02:
+                edge = (svc, service_name) if action_type == "query_dependents" else (service_name, svc)
+                if edge not in new_edges:
+                    new_edges.append(edge)
+
     for e in new_edges:
         if e not in edges_seen:
             edges_seen.append(e)
