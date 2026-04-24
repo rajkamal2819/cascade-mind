@@ -419,7 +419,7 @@ class ServiceImpactEnvironment(
         # Generate LLM incident context (cached per seed — fast on cache hit)
         meta = SERVICE_METADATA.get(self._changed_service, {})
         incident_block = ""
-        if self._domain is None:
+        if self._domain is None or not getattr(self._domain, 'incident_archetypes', []):
             # SRE: use LLM simulator for incident context
             if self._simulator.is_active:
                 try:
