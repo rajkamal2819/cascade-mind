@@ -7,11 +7,15 @@ app_port: 7860
 pinned: false
 tags:
   - openenv
-  - sre
-  - microservices
-  - llm
   - reinforcement-learning
-  - incident-response
+  - world-modeling
+  - knowledge-graph
+  - grpo
+  - brier-score
+  - curriculum-learning
+  - sre
+  - supply-chain
+  - llm
   - networkx
 base_path: /web
 ---
@@ -322,6 +326,63 @@ graph TB
 ```
 
 </details>
+
+---
+
+## One Step, End to End
+
+To make the architecture concrete, here is exactly what happens when an agent calls `query_dependents` on `catalog_service` at difficulty **medium**:
+
+```
+① Agent sends action
+   {"action_type": "query_dependents", "service_name": "catalog_service"}
+
+② MutationEngine check
+   maybe_mutate() → no event scheduled at this step
+   world_version stays at 1
+
+③ Ground Truth Layer (hidden from agent)
+   nx.predecessors(G, "catalog_service")
+   → true dependents: {search_service, web_backend, cart_service, recommendation_service}
+
+④ LLM Simulator (Llama-3.1-8B via Cerebras)
+   Generates realistic registry CLI output.
+   Medium noise: drops 1 real node, injects 1 hallucinated node.
+   → returned in output: {search_service, web_backend, cart_service, api_gateway}
+      (recommendation_service silently dropped · api_gateway hallucinated)
+
+⑤ World Modeling Layer
+   BeliefTracker.update():
+     search_service      0.10 → 0.25  (+mention boost)
+     web_backend         0.10 → 0.25
+     cart_service        0.10 → 0.25
+     api_gateway         0.10 → 0.25  (hallucinated — boost applied anyway)
+     recommendation_svc  0.10 → 0.09  (not mentioned — soft decay)
+
+   ContradictionEngine.check():
+     First query for this service — no prior output to compare. No event.
+
+   ProcessReward.compute_step_reward():
+     information_gain  = 0.14   (Jaccard improvement of high-conf set vs ground truth)
+     Δ intermediate_fbeta = 0.09
+     step_reward = (0.14 × 0.10) + (0.09 × 0.05) = +0.019
+
+⑥ Agent receives ServiceImpactObservation
+   {
+     "message":            "Registry output: search_service, web_backend, cart_service, api_gateway",
+     "queries_remaining":  9,
+     "belief_state":       {"search_service": 0.25, "web_backend": 0.25, ...},
+     "information_gain":   0.14,
+     "intermediate_fbeta": 0.31,
+     "contradiction_count": 0,
+     "world_version":      1,
+     "reward":             0.019
+   }
+
+⑦ TrajectoryLogger records the step to JSONL for later GRPO export
+```
+
+The agent must reconcile that `api_gateway` appeared in the registry but may be noise — and that `recommendation_service` was never mentioned despite being a true dependent. This is the core reasoning challenge: **evidence is noisy, the ground truth is hidden, and every query costs budget**.
 
 ---
 
@@ -734,7 +795,7 @@ python inference.py
 | `GET` | `/contradictions` | Detected contradictions this episode |
 | `GET` | `/export/grpo` | Export trajectories as JSONL (TRL-ready) |
 | `GET` | `/graph/ground-truth` | Interactive vis.js ground-truth graph |
-| `GET` | `/mcp` | MCP tools manifest |
+| `GET` | `/mcp/manifest` | MCP tools manifest |
 | `POST` | `/mcp` | MCP JSON-RPC 2.0 tool calls |
 | `GET` | `/docs` | Swagger UI |
 
@@ -742,24 +803,33 @@ python inference.py
 
 ## MCP Integration
 
-The server exposes a **Model Context Protocol** endpoint at `/mcp`:
+The server exposes a **Model Context Protocol** endpoint — connect any MCP-compatible AI client directly to the environment:
 
 ```bash
-POST /mcp
-Content-Type: application/json
+# 1. Discover available tools
+GET /mcp/manifest
 
+# 2. Handshake
+POST /mcp
+{ "jsonrpc": "2.0", "id": 1, "method": "initialize" }
+
+# 3. List tools
+POST /mcp
+{ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }
+
+# 4. Execute a tool
+POST /mcp
 {
-  "jsonrpc": "2.0",
+  "jsonrpc": "2.0", "id": 3,
   "method": "tools/call",
   "params": {
     "name": "query_dependents",
     "arguments": { "service_name": "payment_service" }
-  },
-  "id": 1
+  }
 }
 ```
 
-Available MCP tools: `query_dependents` · `query_dependencies` · `query_runbook` · `query_changelog` · `query_monitoring` · `submit_impact_assessment`
+Available MCP tools: `query_dependents` · `query_dependencies` · `query_runbook` · `query_changelog` · `query_monitoring` · `query_topology_diff` · `query_service_health` · `submit_hypothesis` · `submit`
 
 ---
 
