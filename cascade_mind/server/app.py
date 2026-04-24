@@ -513,7 +513,7 @@ _MCP_TOOLS = [
 ]
 
 
-@app.get("/mcp")
+@app.get("/mcp/manifest")
 async def mcp_manifest():
     """MCP tools manifest — lists all available environment tools."""
     return {
