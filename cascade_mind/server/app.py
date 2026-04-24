@@ -258,6 +258,35 @@ app.openapi_tags = [
 # ---------------------------------------------------------------------------
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse
+from pydantic import BaseModel
+from typing import Any, Dict, Optional
+
+
+class MCPRequest(BaseModel):
+    """JSON-RPC 2.0 request body for the MCP endpoint.
+
+    Supported methods:
+    - `initialize` — handshake, returns server capabilities
+    - `tools/list` — returns all available tool schemas
+    - `tools/call` — executes a tool by name with arguments
+    """
+    jsonrpc: str = "2.0"
+    id: int = 1
+    method: str
+    params: Optional[Dict[str, Any]] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 2, "method": "initialize"},
+                {
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {"name": "query_dependents", "arguments": {"service_name": "catalog_service"}}
+                },
+            ]
+        }
+    }
 
 @app.get("/graph/ground-truth", include_in_schema=False)
 async def ground_truth_graph(seed: int = 0, difficulty: str = "easy"):
@@ -503,17 +532,17 @@ async def mcp_manifest():
 
 
 @app.post("/mcp")
-async def mcp_rpc(request: Request):
+async def mcp_rpc(body: MCPRequest):
     """JSON-RPC 2.0 endpoint for MCP protocol compliance.
 
     Supports:
-      tools/list  → returns full tools manifest
-      tools/call  → returns tool schema (actual execution via WebSocket)
+    - `initialize` — handshake, returns server capabilities
+    - `tools/list` — returns all available tool schemas
+    - `tools/call` — executes a named tool with arguments
     """
     try:
-        body   = await request.json()
-        method = body.get("method", "")
-        req_id = body.get("id", 1)
+        method = body.method
+        req_id = body.id
 
         if method == "initialize":
             return JSONResponse({
@@ -532,7 +561,7 @@ async def mcp_rpc(request: Request):
             })
 
         if method == "tools/call":
-            params    = body.get("params", {})
+            params    = body.params or {}
             tool_name = params.get("name", "")
             tool = next((t for t in _MCP_TOOLS if t["name"] == tool_name), None)
             if tool is None:
@@ -542,7 +571,7 @@ async def mcp_rpc(request: Request):
                 })
 
             # ── Execute the tool against a real environment instance ──
-            arguments = params.get("arguments", {})
+            arguments = dict(params.get("arguments", {}))
             env = ServiceImpactEnvironment()
 
             # Auto-reset if no episode is active (MCP callers may not reset first)
