@@ -1,26 +1,38 @@
 spec_version: 1
-name: service_impact_env
+name: cascade-mind
 type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
 
 description: >
-  Cross-service microservice impact analysis environment.
-  An AI agent acts as an SRE investigating a production incident, using noisy
-  LLM-generated tool outputs (PagerDuty alerts, service registries, runbooks,
-  Datadog monitoring) to identify all downstream services affected by a breaking
-  change. Reward = F-beta(β=2) of predicted vs ground-truth affected set.
-  First OpenEnv environment to use an LLM (Llama-3.1-8B) as the observation generator.
+  A domain-agnostic reinforcement learning environment for training agents that reason
+  over hidden dependency graphs with noisy tools and a limited query budget.
+
+  Built on OpenEnv, cascade-mind ships with two plug-and-play domains — SRE incident
+  response (30 microservices) and supply chain disruption (30 supplier nodes) — and a
+  DomainConfig plugin interface for adding any knowledge-graph domain in a single file.
+
+  Key features:
+  - World Modeling Layer: BeliefTracker (per-service confidence), ContradictionEngine
+    (tool conflict detection), and GraphPrior (cross-episode edge frequency memory)
+  - Composable OpenEnv Rubric: FBetaRubric (80%, beta=2, recall-heavy) +
+    BrierScoreRubric (20%, rewards calibrated uncertainty — knowing what you don't know)
+  - Anti-gaming: MutationEngine (mid-episode topology drift), CurriculumScheduler
+    (difficulty-gated F-beta unlock), OverclaimGuard (penalty for over-predicting)
+  - GRPO-ready: every episode exports training-ready JSONL via /export/grpo
 
 tags:
-  - sre
-  - microservices
-  - llm
   - reinforcement-learning
-  - incident-response
-  - networkx
-  - information-extraction
+  - knowledge-graph
+  - world-modeling
+  - openenv
+  - grpo
+  - sre
+  - supply-chain
+  - llm
+  - brier-score
+  - curriculum-learning
 
 env_vars:
   HF_TOKEN:
