@@ -968,10 +968,10 @@ def execute_step(action_type, service_name, affected, confidence, chat, state):
     empty_extras = ["", "", "", "", ""]  # discovered, timeline, scoreboard, graph, replay
     if env is None:
         chat.append({"role": "assistant", "content": "No active episode. Click **New Episode** to start."})
-        return [state, chat, _budget_html(0, 15), "", gr.update(), gr.update(), None] + empty_extras
+        return [state, chat, _budget_html(0, 15), "", gr.update(), gr.update(), gr.update(), None] + empty_extras
     if state.get("done"):
         chat.append({"role": "assistant", "content": "Episode complete. Click **New Episode** to play again."})
-        return [state, chat, _budget_html(0, state["max_q"]), "", gr.update(), gr.update(), None] + empty_extras
+        return [state, chat, _budget_html(0, state["max_q"]), "", gr.update(), gr.update(), gr.update(), None] + empty_extras
 
     kw: dict = {"action_type": action_type}
     if action_type in ("query_dependents", "query_dependencies", "query_runbook",
@@ -989,7 +989,7 @@ def execute_step(action_type, service_name, affected, confidence, chat, state):
     except Exception as exc:
         chat.append({"role": "assistant", "content": f"**Error:** {exc}"})
         return [state, chat, _budget_html(state["remaining"], state["max_q"]), "",
-                gr.update(), gr.update(), None] + empty_extras  # includes graph+replay
+                gr.update(), gr.update(), gr.update(), None] + empty_extras  # includes graph+replay
 
     state["remaining"] = obs.queries_remaining
     state["done"] = obs.done
@@ -1097,12 +1097,17 @@ def execute_step(action_type, service_name, affected, confidence, chat, state):
         ep_score = obs.reward if obs.reward is not None else 0.0
         replay = _replay_html(steps, discovered, edges_seen, state.get("changed", ""), ep_score)
 
+    domain_key = state.get("domain", "sre")
+    base_choices = _services_for_domain(domain_key)
+    all_choices = sorted(set(base_choices) | set(discovered.keys()))
+
     return [
         state, chat,
         _budget_html(obs.queries_remaining, state["max_q"]),
         score,
         gr.update(interactive=not obs.done),
-        gr.update(),
+        gr.update(choices=all_choices),
+        gr.update(choices=all_choices),
         _env_state_dict(env),
         _discovered_html(discovered),
         _timeline_html(steps),
@@ -1397,7 +1402,7 @@ with gr.Blocks(title="cascade-mind Playground") as playground_blocks:
     step_btn.click(
         execute_step,
         [action_radio, svc_dd, affected_cb, conf_sl, chatbot, session],
-        [session, chatbot, budget_bar, score_card, step_btn, affected_cb, state_panel,
+        [session, chatbot, budget_bar, score_card, step_btn, svc_dd, affected_cb, state_panel,
          discovered_panel, timeline_panel, scoreboard_panel,
          graph_panel, replay_panel, belief_panel, ig_panel],
     )
