@@ -446,18 +446,17 @@ def _vis_js_graph_html(
         team = meta.get("team", "?")
         color = "#ef4444" if svc == changed else tier_colors.get(tier, "#6b7280")
         border_width = 3 if svc == changed else 2
-        font_color = "#fff" if svc == changed else "#e2e8f0"
-        bg = "#dc2626" if svc == changed else (color + "33")
+        bg = "#dc2626" if svc == changed else color + "55"
         nodes.append({
             "id": svc,
             "label": svc.replace("_", "\n"),
             "color": {
                 "background": bg,
                 "border": color,
-                "highlight": {"background": color, "border": "#111827"},
+                "highlight": {"background": color, "border": "#f1f5f9"},
             },
             "borderWidth": border_width,
-            "font": {"size": 11, "color": font_color if svc == changed else "#374151",
+            "font": {"size": 11, "color": "#f1f5f9",
                      "face": "Inter, system-ui, sans-serif"},
             "shape": "box",
             "margin": 8,
