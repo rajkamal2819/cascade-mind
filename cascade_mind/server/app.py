@@ -369,45 +369,11 @@ def _get_env():
     """Retrieve the running ServiceImpactEnvironment instance from the app state."""
     return getattr(app.state, "env", None)
 
-# ---------------------------------------------------------------------------
-# Evict any default openenv /web or / Gradio route so ours takes priority
-# ---------------------------------------------------------------------------
-_evict_paths = {"/", "/web"}
-app.routes[:] = [r for r in app.routes if not (hasattr(r, "path") and r.path in _evict_paths)]
-
-# HF Spaces / openenv hits /web first — must be BEFORE the Gradio catch-all mount
-@app.get("/web", include_in_schema=False)
-async def web_redirect():
-    return RedirectResponse(url="/")
-
-@app.get("/web/", include_in_schema=False)
-async def web_slash_redirect():
-    return RedirectResponse(url="/")
 
 # ---------------------------------------------------------------------------
-# Playground — custom Gradio 6 interactive UI at /
+# MCP tool list — defined here so it can be used by both GET and POST routes.
+# GET /mcp/manifest MUST be registered before the Gradio catch-all mount below.
 # ---------------------------------------------------------------------------
-try:
-    import gradio as gr
-    try:
-        from .ui.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
-    except ImportError:
-        from cascade_mind.server.ui.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
-    app = gr.mount_gradio_app(
-        app, playground_blocks, path="/",
-        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
-    )
-except Exception as _pg_exc:
-    import warnings as _w
-    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
-
-# ---------------------------------------------------------------------------
-# MCP (Model Context Protocol) endpoint — RFC 003 compliance
-# Exposes the environment as a tool-callable MCP server.
-# GET  /mcp        → tools manifest (list all available tools)
-# POST /mcp        → JSON-RPC 2.0 dispatcher (tools/list, tools/call)
-# ---------------------------------------------------------------------------
-
 _MCP_TOOLS = [
     {
         "name": "query_dependents",
@@ -491,29 +457,21 @@ _MCP_TOOLS = [
     {
         "name": "query_topology_diff",
         "description": "Show all topology changes (mutations) that occurred during this episode. FREE action — no budget cost.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-        },
+        "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "query_service_health",
         "description": "Get health summary for a service: tier, team, degree, investigation status. FREE action — no budget cost.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "service_name": {
-                    "type": "string",
-                    "description": "The service to get health info for.",
-                },
-            },
+            "properties": {"service_name": {"type": "string", "description": "The service to get health info for."}},
             "required": ["service_name"],
         },
     },
 ]
 
 
-@app.get("/mcp/manifest")
+@app.get("/mcp/manifest", tags=["MCP"])
 async def mcp_manifest():
     """MCP tools manifest — lists all available environment tools."""
     return {
@@ -530,6 +488,43 @@ async def mcp_manifest():
         "execution": "Use the WebSocket at /ws for stateful episode execution.",
     }
 
+
+# ---------------------------------------------------------------------------
+# Evict any default openenv /web or / Gradio route so ours takes priority
+# ---------------------------------------------------------------------------
+_evict_paths = {"/", "/web"}
+app.routes[:] = [r for r in app.routes if not (hasattr(r, "path") and r.path in _evict_paths)]
+
+# HF Spaces / openenv hits /web first — must be BEFORE the Gradio catch-all mount
+@app.get("/web", include_in_schema=False)
+async def web_redirect():
+    return RedirectResponse(url="/")
+
+@app.get("/web/", include_in_schema=False)
+async def web_slash_redirect():
+    return RedirectResponse(url="/")
+
+# ---------------------------------------------------------------------------
+# Playground — custom Gradio 6 interactive UI at /
+# ---------------------------------------------------------------------------
+try:
+    import gradio as gr
+    try:
+        from .ui.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME
+    except ImportError:
+        from cascade_mind.server.ui.playground import playground_blocks, PLAYGROUND_CSS, PLAYGROUND_THEME  # type: ignore
+    app = gr.mount_gradio_app(
+        app, playground_blocks, path="/",
+        css=PLAYGROUND_CSS, theme=PLAYGROUND_THEME,
+    )
+except Exception as _pg_exc:
+    import warnings as _w
+    _w.warn(f"cascade-mind: playground mount failed -- {_pg_exc}", stacklevel=1)
+
+# ---------------------------------------------------------------------------
+# MCP (Model Context Protocol) — POST /mcp JSON-RPC 2.0 dispatcher
+# GET  /mcp/manifest is registered ABOVE the Gradio mount to avoid catch-all conflict.
+# ---------------------------------------------------------------------------
 
 @app.post("/mcp")
 async def mcp_rpc(body: MCPRequest):
