@@ -474,49 +474,249 @@ This makes GRPO training dramatically more stable than sparse terminal reward al
 
 ---
 
-## Reward Design — OpenEnv Rubric Integration
+## Reward Design — Three Layers, One Goal
 
-cascade-mind uses the **OpenEnv Rubric framework** for composable, introspectable reward scoring:
+The reward system has three distinct layers that operate at different timescales. Together they solve a hard training problem: how do you give an LLM meaningful gradient signal when the correct answer is only revealed at the end of a 10–15 step investigation?
+
+```
+Episode start ──────────────────────────────────────────── submit
+                                                               │
+Layer 1:  +0.05 / −0.05 per step ─────────────────────────    │
+Layer 2:  PRM dense signal per step ───────────────────────    │
+Layer 3:  (terminal)  0.80 × F-beta + 0.20 × Brier ───────────┘
+```
+
+---
+
+### Layer 1 — Immediate Step Signals
+
+These fire on every action and are visible in the live observation:
+
+| Action | Signal | Why |
+|---|:---:|---|
+| `query_dependents` / `query_dependencies` — new service | `+0.05` | Rewards exploration |
+| Same — re-querying an already-visited service | `−0.05` | Penalizes redundant queries |
+| `query_runbook` / `query_changelog` / `query_monitoring` | `None` | Free — no budget cost |
+| Free action **over cap** (runbook>2, changelog>2, monitoring>3) | `−1 query` from budget | Prevents free-action abuse |
+| `submit_hypothesis` | `None` + `delayed_reward` | Partial F-beta revealed, episode continues |
+| Budget exhausted without `submit` | `−0.40` + episode ends | Heavy penalty for failing to commit |
+
+> These signals are **pedagogical only** — they are not accumulated into the terminal score. The final submit score is computed independently from scratch.
+
+---
+
+### Layer 2 — Process Reward Model (PRM)
+
+Every registry query step produces a dense intermediate reward for GRPO training stability. This is what the training loop receives in the `process_rewards` field of each JSONL record:
+
+$$r_{\text{step}} = \underbrace{IG \times 0.10}_{\text{information gain}} + \underbrace{\Delta F_\beta \times 0.05}_{\text{progress toward answer}} - \underbrace{C_{\text{new}} \times 0.03}_{\text{contradiction penalty}}$$
+
+**Information gain** — measured as the Jaccard improvement of the agent's current high-confidence set (belief > 0.5) against the ground-truth affected set, compared to the previous step:
+
+$$IG = \text{Jaccard}(H_t,\ \text{true}) - \text{Jaccard}(H_{t-1},\ \text{true}) \quad \in [0,\ 1]$$
+
+**ΔF-beta** — only the positive delta. If the agent's intermediate F-beta improves this step, it gets a bonus. Regressions (getting worse) are not additionally penalized here.
+
+$$\Delta F_\beta = \max\bigl(0,\ F_\beta^{(t)} - F_\beta^{(t-1)}\bigr)$$
+
+**Contradiction penalty** — each new `[CONTRADICTION DETECTED]` event fired by the ContradictionEngine deducts `0.03`.
+
+The net PRM range per step is approximately **[-0.03, +0.15]** — large enough to guide gradient updates, small enough not to dominate the terminal reward.
+
+---
+
+### Layer 3 — Terminal Reward (on `submit`)
+
+This is the definitive score used for leaderboard ranking and GRPO training. It is computed via the **OpenEnv Rubric framework**:
 
 ```python
 env.rubric.named_rubrics()
-# → ("fbeta",       FBetaRubric)
-# → ("calibration", BrierScoreRubric)
+# → ("fbeta",       FBetaRubric)      — 80% weight
+# → ("calibration", BrierScoreRubric) — 20% weight
 ```
 
-### Terminal Reward Formula
+$$\boxed{\text{reward} = 0.80 \times F_\beta + 0.20 \times \text{Brier} \quad \in (0.001,\ 0.999)}$$
 
-$$\text{reward} = 0.80 \times F_\beta(\beta=2) + 0.20 \times \text{Brier} \quad \in (0.001,\ 0.999)$$
+---
 
-**FBetaRubric (80%)** — F-beta with β=2 weights recall 4× over precision. Missing an affected node is far worse than a false alarm.
+#### FBetaRubric — 80%
 
-$$F_\beta(\beta=2) = \frac{(1 + \beta^2) \cdot P \cdot R}{\beta^2 \cdot P + R}$$
+F-beta with β=2 weights recall 4× over precision. In production incidents, missing an affected node causes cascading failures — a false alarm just means extra work.
 
-**BrierScoreRubric (20%) — Novel Signal** — Rewards agents for having accurate *confidence estimates*, not just correct final answers:
+$$F_\beta(\beta=2) = \frac{(1 + \beta^2) \cdot P \cdot R}{\beta^2 \cdot P + R} = \frac{5PR}{4P + R}$$
+
+Two modifiers are then applied:
+
+**Overclaiming penalty** — if the agent submits more than X% of all nodes:
+
+$$\text{oversubmit\_frac} = \frac{n_{\text{predicted}} / 30 - \theta}{1 - \theta} \quad \text{(capped at 1.0)}$$
+$$\text{penalty} = \text{penalty\_max} \times \text{oversubmit\_frac}$$
+
+**Budget efficiency bonus** — active only in the `efficiency` reward profile:
+
+$$\text{bonus} = 0.15 \times \left(2 \times \frac{\text{max\_queries} - \text{queries\_used}}{\text{max\_queries}} - 1\right) \quad \in [-0.15, +0.15]$$
+
+An agent that submits early with correct answers earns up to +0.15. One that exhausts its full budget gets −0.15.
+
+Final F-beta component:
+$$\text{FBeta\_raw} = F_\beta - \text{overclaim\_penalty} + \text{budget\_bonus}$$
+
+---
+
+#### BrierScoreRubric — 20% — Novel Signal
+
+Most RL environments reward correct answers. This rubric rewards **accurate uncertainty**. At submit time, the environment reads the agent's `belief_state` — a per-node confidence dict maintained throughout the episode by the `BeliefTracker`:
 
 $$\text{Brier} = 1 - \frac{1}{|S|}\sum_{s \in S}\bigl(\text{belief}[s] - y_s\bigr)^2 \qquad y_s \in \{0,1\}$$
 
-An agent that is 90% confident on truly affected nodes and 10% confident on safe nodes scores higher than one that guesses uniformly. This is a signal no other OpenEnv environment exposes — it rewards *knowing what you don't know*.
-
-### Step-Level Modifiers
-
-| Condition | Modifier |
+| Agent behaviour | Brier score |
 |---|:---:|
-| Each new unique node queried | +0.05 |
-| Re-querying the same node | −0.05 |
-| Budget exhausted without submit | −0.40 |
-| Overclaiming (> 60% of all nodes) | −0.3 × oversubmit fraction |
+| 90% confident on truly affected, 10% on safe nodes | ~0.97 |
+| Uniformly 50% confident on everything | 0.75 |
+| 90% confident but wrong about which nodes | ~0.10 |
 
-### Rotating Reward Profiles
+An agent that learned to reason carefully about evidence — boosting confidence only when multiple tool outputs agree — scores higher here than one that guesses broadly. This is a signal **no other OpenEnv environment exposes**.
 
-To prevent reward hacking, the environment rotates across 4 F-beta profiles per seed band:
+The `BeliefTracker` updates on every step:
 
-| Profile | β | Overclaim threshold | Intended strategy |
-|---|:---:|:---:|---|
-| `recall_heavy` | 2.5 | 70% | Cast wide — don't miss anything |
-| `balanced` | 1.5 | 60% | Balance coverage and precision |
-| `precision_heavy` | 0.8 | 50% | Stay selective, avoid false positives |
-| `efficiency` | 2.0 | 65% | Finish fast — budget bonus for early submit |
+```
+Initial state:  all services → 0.10 confidence
+                changed_service → 0.85 confidence
+
+Per-step update:
+  service mentioned in LLM output     → +0.15
+  service directly queried            → +0.075
+  service in true neighbors (soft prior) → +0.05
+  service not in true neighbors       → −0.025
+  all values clamped to [0.0, 1.0]
+```
+
+---
+
+### Rotating Reward Profiles — Anti-Gaming
+
+The reward profile is selected **deterministically by seed** (`seed % 4`), so the agent always knows which profile is active (it's announced in the reset observation) but cannot avoid it. This prevents reward hacking: a strategy that works perfectly for `recall_heavy` may fail catastrophically under `precision_heavy`.
+
+| Profile | β | Overclaim threshold | Max penalty | Budget bonus | Optimal strategy |
+|---|:---:|:---:|:---:|:---:|---|
+| `recall_heavy` | 2.5 | 70% | −0.15 | none | Cast wide — include anything with evidence |
+| `balanced` | 1.5 | 60% | −0.25 | none | Gather 2+ sources before including a node |
+| `precision_heavy` | 0.8 | 50% | −0.40 | none | Only submit with high confidence, stay selective |
+| `efficiency` | 2.0 | 60% | −0.30 | ±0.15 | Submit early when confident, minimize queries |
+
+At `precision_heavy` β=0.8 with a 40% max penalty, an agent that submits 18 of 30 nodes (60%) when only 6 are actually affected loses almost its entire F-beta score to the overclaiming penalty. The environment is actively hostile to "submit everything" strategies.
+
+---
+
+### Complete Reward Audit — One Episode
+
+```
+Step 1: query_dependents("catalog_service") — new service          → +0.05 step reward
+                                                                      +0.014 PRM (IG=0.12, ΔFβ=0.09)
+Step 2: query_dependents("catalog_service") — re-query             → −0.05 step reward
+                                                                      +0.001 PRM (near-zero IG)
+Step 3: query_runbook("auth_service")       — free, within cap     →  None
+Step 4: submit_hypothesis(["cart", "api"])  — costs 1 query        →  delayed_reward=0.31 (partial Fβ)
+Step 5: submit(["cart_service",             — terminal             →
+         "order_service",
+         "auth_service"])
+         ↓
+         F-beta(β=2):  precision=0.75, recall=0.83  → Fβ=0.809
+         Overclaim:    3/30 = 10% < 60% threshold   → penalty=0.0
+         Budget bonus: not efficiency profile        → bonus=0.0
+         FBetaRubric:  0.809
+
+         Brier score:  belief well-calibrated        → 0.87
+         BrierRubric:  0.87
+
+         Final:  0.80×0.809 + 0.20×0.87 = 0.647 + 0.174 = 0.821
+         Clamped: 0.821 ∈ (0.001, 0.999) ✓
+```
+
+---
+
+### Reward Integrity — TrajectoryAuditor
+
+Every episode is logged to a JSONL file by `TrajectoryLogger`. After the episode ends, `TrajectoryAuditor` reads that log and runs a post-episode analysis. The key job: **detect reward hacking before it contaminates the training set**.
+
+```python
+auditor = TrajectoryAuditor("/app/trajectories")
+report  = auditor.audit_episode(seed=42)
+
+print(report.strategy)           # "bfs_first" | "hypothesis_driven" | "free_intel_heavy" | ...
+print(report.requery_count)      # how many times agent revisited the same service
+print(report.budget_utilization) # queries_used / max_queries
+print(report.hypothesis_trend)   # "improving" | "declining" | "stable"
+```
+
+#### Strategy Classification
+
+The auditor labels every episode with one of five strategies based on the action sequence:
+
+| Strategy | Detection rule | What it reveals |
+|---|---|---|
+| `bfs_first` | ≥3 registry queries, zero hypotheses | Agent explores broadly before committing — healthy |
+| `hypothesis_driven` | ≥2 `submit_hypothesis` calls | Agent probes the scorer to calibrate — acceptable |
+| `free_intel_heavy` | free actions ≥ total budget actions | Agent over-relies on free tools, avoids paying budget |
+| `free_intel_only` | zero budget actions at all | Agent never pays for registry queries — clear exploit |
+| `mixed` | none of the above patterns dominate | Balanced, adaptive approach |
+
+#### Reward Hacking Patterns This Catches
+
+**1. Free-action farming (`free_intel_only` / `free_intel_heavy`)**
+
+Runbooks, changelogs, and monitoring are free (no budget cost). An agent that discovers it can gather text indefinitely without paying for queries, then blindly submits, would score by luck without actually reasoning under budget pressure.
+
+Detection: `strategy == "free_intel_only"` flags any episode where the agent never issued a single `query_dependents` or `query_dependencies` call. The environment's free-action caps (runbook=2, changelog=2, monitoring=3) are the enforcement layer; the auditor is the visibility layer.
+
+**2. Re-query fishing (`requery_count > 0`)**
+
+Because the LLM simulator introduces stochastic noise, an agent could learn to re-query the same service multiple times hoping to get different outputs — effectively sampling the noise distribution to average out uncertainty, rather than reasoning about it.
+
+Detection: `report.requery_count` tracks every instance where the agent queried an already-visited service. The `−0.05` step penalty exists specifically to make this strategy unprofitable, but the auditor surfaces exactly how often it happens.
+
+**3. Hypothesis probing (`hypothesis_driven` + declining trend)**
+
+`submit_hypothesis` reveals partial F-beta without ending the episode. An agent could learn to use it as a scoring oracle — submitting increasingly refined guesses until it finds the combination that scores highest, then committing.
+
+Detection: `report.hypothesis_trend == "declining"` means the agent's hypothesis scores got worse over the episode — often a sign of noise in the LLM outputs rather than genuine reasoning. Paired with `report.fp` and `report.fn` breakdowns, this shows whether the agent is genuinely improving its prediction or fishing for a lucky score.
+
+**4. Overclaiming with high recall (`fp` spike)**
+
+Submitting all 30 services guarantees recall=1.0 but triggers the overclaiming penalty. Subtler: submitting 18 of 30 services (60%) at `recall_heavy` profile might still pass the 70% threshold — giving the agent near-perfect recall at low cost.
+
+Detection: `report.fp` (false positives) is logged on every submit. The auditor `summary()` call aggregates `mean_reward`, `strategy_distribution`, and `hypothesis_usage` across all episodes — making systematic overclaiming visible across training runs.
+
+#### GRPO Export Gate
+
+`TrajectoryAuditor.export_grpo_jsonl()` acts as the final filter before episodes enter the training set:
+
+```python
+exported = auditor.export_grpo_jsonl(
+    output_path="/app/grpo_training_data.jsonl",
+    min_reward=0.5,              # discard low-quality episodes
+    include_process_rewards=True # attach PRM signals for each step
+)
+```
+
+Episodes below `min_reward=0.5` are excluded. Each exported record carries:
+
+```json
+{
+  "prompt":   "...",            // reset observation — the incident alert
+  "response": "...",            // agent's full action sequence
+  "reward":   0.821,            // terminal blended score
+  "process_rewards": [0.014, 0.001, 0.0, 0.022, ...],  // per-step PRM
+  "metadata": {
+    "seed":       42,
+    "difficulty": "medium",
+    "strategy":   "bfs_first",  // auditor label — can filter by this in training
+    "steps":      5
+  }
+}
+```
+
+The `strategy` field in metadata means training runs can be filtered to, for example, exclude all `free_intel_only` episodes — preventing the model from learning the free-action exploit even if that strategy happened to score above 0.5 by chance.
 
 ---
 
