@@ -63,7 +63,7 @@ The standard approach — scripted observations, deterministic graphs, rule-base
 
 cascade-mind makes memorization impossible:
 
-- **An LLM generates every observation.** There is no scripted response. Llama-3.1-8B via Cerebras produces a fresh PagerDuty alert, registry output, or monitoring snapshot for every query — varying in phrasing, emphasis, and accuracy.
+- **An LLM generates every observation.** There is no scripted response. Llama-3.1-8B via Cerebras produces a fresh domain-specific tool output for every query — an incident alert, a dependency registry lookup, a supplier feed, a runbook — varying in phrasing, emphasis, and accuracy across every episode.
 - **The graph mutates mid-episode.** At medium/hard difficulty, `MutationEngine` silently changes the ground-truth topology. The agent gets no notification. It must detect the shift from observation changes.
 - **10,000+ unique graph topologies.** Each seed deterministically perturbs the edge set. No two episodes are identical.
 - **4 rotating reward profiles.** The beta in F-beta(β) rotates across seeds — an agent cannot hack a single strategy.
@@ -71,19 +71,23 @@ cascade-mind makes memorization impossible:
 
 ---
 
-## The Solution: A Testbed for Causal World Modeling
+## The Solution: A Framework for Causal World Modeling
 
-cascade-mind is an [OpenEnv](https://github.com/openenv/openenv)-compatible reinforcement learning environment where an AI agent acts as an on-call investigator. A node in a dependency graph just had a breaking change — the agent must trace its blast radius using only noisy, LLM-generated tool outputs.
+cascade-mind is an [OpenEnv](https://github.com/openenv/openenv)-compatible **framework** for building RL environments where an agent must trace the blast radius of a change through a hidden dependency graph — using only noisy, LLM-generated tool outputs and a limited query budget.
 
-**First OpenEnv environment to use an LLM as the world model.** Scripted observations can be memorized. Ours can't.
+The core challenge is domain-agnostic. A microservice breaks and takes down downstream callers. A factory fire disrupts supply routes. A hospital department closes and cascades into patient transfer bottlenecks. In every case, the agent faces the same problem: **construct a causal model of a hidden graph from imperfect tools, before time runs out**.
 
-The environment is domain-agnostic by design. The same World Modeling Layer, reward pipeline, and agent interface work across:
+**One frozen dataclass. One new domain.** The entire World Modeling Layer, reward pipeline, LLM simulator, curriculum scheduler, and GRPO export pipeline work unchanged across any domain that fits the pattern. You supply the graph and the tool labels — cascade-mind handles everything else.
 
-| Domain | Graph | Changed Node | Tools |
+| Domain | Graph | Changed Node | Tool types |
 |---|---|---|---|
-| **SRE** | 30 microservices · calls graph | Broken API change | Registry, runbook, monitoring, changelog |
-| **Supply Chain** | 30 suppliers/factories · supplies graph | Factory fire or canal blockage | Supplier API, logistics feed, inventory snapshot |
+| **SRE / Microservices** | 30 services · calls graph | Breaking API change | Registry, runbook, monitoring, changelog |
+| **Supply Chain Disruption** | 30 suppliers/factories · supplies graph | Factory fire or canal blockage | Supplier feed, logistics API, inventory snapshot |
+| **Hospital Network** | 25 departments · referral graph | Capacity closure or outbreak | EHR query, bed tracker, staff roster |
+| **Financial Clearing** | 30 institutions · counterparty graph | Liquidity event or settlement failure | Risk feed, settlement log, liquidity monitor |
 | **Add your own** | Any 20–50 node DiGraph | Any incident type | Define 3–5 tool types in `DomainConfig` |
+
+**First OpenEnv-compatible RL environment to use an LLM as the world model.** Scripted observations can be memorized. LLM-generated observations — varying in phrasing, emphasis, and accuracy across every episode — cannot.
 
 ---
 
@@ -329,9 +333,17 @@ graph TB
 
 ---
 
+## Domain Plugin in Action: SRE / Microservices
+
+To make the framework concrete, let's walk through what happens when the **SRE domain plugin** is active. The agent is an on-call engineer. A breaking API change has been detected. 30 microservices are wired into a hidden dependency graph. The agent must identify which downstream services will break — before its query budget runs out.
+
+The framework handles all infrastructure: LLM calls, belief updates, contradiction detection, reward computation, trajectory logging, and GRPO export. The SRE domain plugin supplies the graph topology, tool prompt templates, and incident archetypes. Swap in `SUPPLY_CHAIN_DOMAIN` and nothing in the framework changes.
+
+---
+
 ## One Step, End to End
 
-To make the architecture concrete, here is exactly what happens when an agent calls `query_dependents` on `catalog_service` at difficulty **medium**:
+Here is exactly what the framework executes when an agent calls `query_dependents` on `catalog_service` at difficulty **medium** — using the SRE domain plugin:
 
 ```
 ① Agent sends action
@@ -438,39 +450,124 @@ The agent must reconcile that `api_gateway` appeared in the registry but may be 
 
 ## World Modeling Layer — The Core Innovation
 
-Most RL environments treat the agent as a black box: give it an observation, get an action, issue a reward. cascade-mind goes further by maintaining **explicit internal world state** that the agent can read and act on.
+Most RL environments treat the agent as a black box: give it an observation, get an action, issue a reward. cascade-mind goes further — the environment maintains **four explicit internal components** that track what the agent knows, where tools disagree, what history suggests, and how much progress each step made. All four are returned to the agent in every observation and recorded in every GRPO training record.
+
+```
+Every step, the framework runs four components in sequence:
+
+  Tool output (LLM)
+       ↓
+  BeliefTracker    — update per-node confidence from the new text
+       ↓
+  ContradictionEngine — compare this tool's output to prior outputs for the same node
+       ↓
+  GraphPrior       — surface session-level edge frequency hints (reset only)
+       ↓
+  ProcessReward    — compute dense intermediate reward from IG + ΔF-beta − contradictions
+       ↓
+  ServiceImpactObservation (returned to agent)
+```
+
+---
 
 ### BeliefTracker
 
-Every step, the environment maintains a `belief_state` dict — a per-node confidence score `[0, 1]` reflecting how likely each node is to be in the blast radius. This is updated via Bayesian-style mention boost/decay every time a tool output names a service. The agent receives this as a structured dict alongside every observation.
+The BeliefTracker maintains a `belief_state` dict — a per-node confidence score `[0.0, 1.0]` for every node in the domain graph, updated after every action. It is the agent's running estimate of "how likely is this node in the blast radius."
 
+**Update rule per step:**
+
+| Event | Delta |
+|---|:---:|
+| Node explicitly mentioned in LLM tool output | `+0.15` |
+| Node directly queried (queried service itself) | `+0.075` |
+| Node in ground-truth neighbors (soft prior leak) | `+0.05` |
+| Node not in ground-truth neighbors | `−0.025` |
+| All values clamped to `[0.0, 1.0]` | — |
+
+The soft ground-truth prior (`+0.05`) is intentional — it gives the agent a gentle gradient signal even when the LLM output is noisy or misleading, preventing belief from stagnating at the initial prior of `0.10` for all nodes.
+
+**Initial state at episode start:**
+```
+all nodes       → 0.10  (uniform low prior)
+changed_service → 0.85  (we know this node changed)
+```
+
+**What the agent sees in every observation:**
 ```json
 "belief_state": {
-  "cart_service": 0.82,
-  "order_service": 0.71,
+  "cart_service":   0.82,
+  "order_service":  0.71,
   "payment_service": 0.44,
-  "auth_service": 0.10,
-  ...
+  "auth_service":   0.10,
+  "catalog_service": 0.85
 }
 ```
 
+The agent can use this directly: services above 0.5 are high-confidence candidates for the blast radius. The Brier score (20% of the terminal reward) measures how well-calibrated this dict is at submit time — so an agent that builds an accurate belief state is doubly rewarded.
+
+---
+
 ### ContradictionEngine
 
-When two tools disagree — a registry says `cart_service` is a dependent, but monitoring shows no downstream latency spikes — the `ContradictionEngine` fires a `[CONTRADICTION DETECTED]` alert in the observation message. The agent must decide which source to trust.
+The ContradictionEngine watches for disagreements between tool outputs **for the same node across different tool types**. When a registry says `cart_service` is a downstream dependent but a subsequent monitoring query shows no latency spikes or error rate changes for that service, the outputs contradict each other. The agent must decide which source to trust.
+
+**Detection mechanism:**
+
+On each query, the engine computes the symmetric difference between this tool's output and the prior output for the same node from a different tool type. If the disagreement score exceeds `0.4`, a `ContradictionEvent` is fired:
+
+```
+[CONTRADICTION DETECTED] query_dependents vs query_monitoring for cart_service:
+  registry reported: {cart_service, order_service, auth_service}
+  monitoring shows:  no anomalies on cart_service downstream
+  → contradiction score: 0.67  (threshold: 0.40)
+```
+
+This alert is injected directly into `observation.message` — the agent sees it in the same text stream as the tool output. The cumulative count is returned as `contradiction_count` in every observation.
+
+**Why this matters for training:** An agent that learns to detect contradictions and down-weight unreliable tool outputs is learning genuine epistemic reasoning — not just parsing text. The `−0.03` PRM penalty per new contradiction creates an incentive to resolve conflicts before submitting.
+
+---
 
 ### GraphPrior
 
-Across sessions, the environment remembers which edges appeared in previous ground-truth graphs. At each `reset()`, it seeds the observation with a "prior hint" about high-confidence edges — mimicking an engineer's memory of how the system usually behaves.
+The GraphPrior maintains a **session-level edge frequency table** across episodes. Every time an episode ends, the ground-truth affected graph is recorded. Over time, edges that appear frequently across seeds build up a high prior frequency. At the start of each new episode, the reset observation includes a hint surfacing the highest-confidence edges:
+
+```
+Graph prior hint: catalog_service → search_service (seen 7/10 recent episodes)
+                  catalog_service → web_backend    (seen 6/10 recent episodes)
+```
+
+This mimics something real: an experienced on-call engineer doesn't start cold. They remember which services tend to cascade together, and they use that memory to prioritize their first queries. The GraphPrior gives the agent the same advantage — without ever leaking the current episode's ground truth.
+
+**Scope:** the prior is per-server-session (in-memory), not per-episode. It accumulates across all seeds run in a single server instance, so it becomes more useful the longer the server runs and the more episodes are played.
+
+---
 
 ### ProcessReward (PRM)
 
-Every query step produces a dense intermediate reward:
+The PRM converts the World Modeling Layer's signals into a **dense per-step reward** that flows into GRPO training alongside the terminal score. Without it, the only gradient signal the model receives is at the final `submit` — which is too sparse for stable training across 10–15 step episodes.
 
-```
-step_reward = (information_gain × 0.10) + (ΔF-beta × 0.05) − (contradiction × 0.03)
-```
+**Formula:**
 
-This makes GRPO training dramatically more stable than sparse terminal reward alone — the model receives meaningful gradient signal throughout the episode, not just at submit.
+$$r_{\text{step}} = \underbrace{IG \times 0.10}_{\text{information gain}} + \underbrace{\max(0,\ \Delta F_\beta) \times 0.05}_{\text{progress toward correct answer}} - \underbrace{C_{\text{new}} \times 0.03}_{\text{contradiction penalty}}$$
+
+Where:
+- **IG** = Jaccard improvement of the agent's high-confidence set (belief > 0.5) vs the true affected set, compared to the previous step. Range: `[0.0, 1.0]`.
+- **ΔF-beta** = improvement in intermediate F-beta this step vs last. Only positive deltas are rewarded — regressions are not additionally penalized.
+- **C_new** = number of new ContradictionEvents fired this step.
+
+**Per-step range:** approximately `[−0.03, +0.15]`
+
+These step rewards are attached to every GRPO training record in the `process_rewards` list — one float per action in the episode. This gives the model credit for useful intermediate reasoning steps, not just the final answer.
+
+```json
+{
+  "prompt": "...",
+  "response": "...",
+  "reward": 0.821,
+  "process_rewards": [0.014, 0.001, 0.0, 0.022, 0.009]
+}
+```
 
 ---
 
@@ -722,7 +819,9 @@ The `strategy` field in metadata means training runs can be filtered to, for exa
 
 ## Build Your Own Domain — The DomainConfig Plugin
 
-The entire environment is parameterized by a single frozen dataclass. To create a new domain, define one file:
+Everything in the SRE walkthrough above — the BeliefTracker, ContradictionEngine, reward rubrics, PRM signals, trajectory logging, GRPO export — is domain-agnostic infrastructure. The 30-service graph, the PagerDuty incident format, the registry tool labels: those are the *SRE plugin*. Swapping them out takes one file.
+
+The entire framework is parameterized by a single frozen dataclass. To create a new domain, define one file:
 
 ```python
 from dataclasses import dataclass
@@ -751,11 +850,11 @@ That's it. The World Modeling Layer, reward pipeline, LLM simulator, curriculum 
 
 ---
 
-## Two Domains — Shipped Today
+## Two Domain Plugins — Shipped Today
 
-### Domain 1 — SRE / Microservices
+### Domain Plugin 1 — SRE / Microservices
 
-30 services across 5 tiers. A breaking API change fires a P1 PagerDuty alert. The agent traces blast radius through noisy registry CLI outputs, Confluence runbooks, and Datadog monitoring snapshots.
+The SRE plugin wires 30 services across 5 tiers into the framework. When active, a breaking API change fires a P1 PagerDuty alert and the agent traces blast radius through noisy registry CLI outputs, Confluence runbooks, and Datadog monitoring snapshots.
 
 ```
 Tier 1 — Gateway:    api_gateway · mobile_backend · web_backend
@@ -769,9 +868,9 @@ Tier 3 — Support:    email_service · sms_service · media_service · analytic
 Tier 4 — Data/Infra: database_service · message_queue · feature_flags · rate_limiter
 ```
 
-### Domain 2 — Supply Chain Disruption
+### Domain Plugin 2 — Supply Chain Disruption
 
-30 nodes spanning raw-materials → factories → logistics → distributors → retail. 5 real-world incident archetypes:
+The supply chain plugin wires 30 nodes spanning raw-materials → factories → logistics → distributors → retail into the same framework. The same agent interface, world modeling layer, and reward pipeline — different graph, different tool labels, different incident archetypes. 5 real-world scenarios:
 
 | Archetype | Based on |
 |---|---|
