@@ -28,7 +28,7 @@ Quick start:
 from .models import ServiceImpactAction, ServiceImpactObservation, ServiceImpactState
 from .client import ServiceImpactEnv
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "ServiceImpactAction",
     "ServiceImpactObservation",

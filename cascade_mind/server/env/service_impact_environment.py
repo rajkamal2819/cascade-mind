@@ -179,7 +179,7 @@ class ServiceImpactEnvironment(
         "Observations are LLM-generated noisy SRE tool output (Llama-3.1-8B). "
         "Reward = F-beta(β=2) of predicted vs ground-truth affected set."
     )
-    version: str = "0.2.0"
+    version: str = "0.3.0"
     author:  str = "Rajkamal2819"
 
     def get_metadata(self):
