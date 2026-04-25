@@ -38,6 +38,35 @@ base_path: /web
 
 ---
 
+## Table of Contents
+
+- [The Problem](#the-problem-hidden-dependencies-are-everywhere)
+- [Why This Is Hard to Train](#why-this-is-hard-to-train)
+- [The Solution: A Framework](#the-solution-a-framework-for-causal-world-modeling)
+- [System Architecture](#system-architecture)
+- [Runtime Architecture — Episode Lifecycle](#runtime-architecture--episode-lifecycle)
+- [Domain Plugin in Action: SRE](#domain-plugin-in-action-sre--microservices)
+- [One Step, End to End](#one-step-end-to-end)
+- [Four-Layer Stack](#four-layer-stack)
+- [World Modeling Layer](#world-modeling-layer--the-core-innovation)
+- [Reward Design](#reward-design--three-layers-one-goal)
+- [Build Your Own Domain](#build-your-own-domain--the-domainconfig-plugin)
+- [Adding a New Domain — Step-by-Step](#adding-a-new-domain--step-by-step)
+- [Two Domain Plugins — Shipped Today](#two-domain-plugins--shipped-today)
+- [Episode Variety & Curriculum](#episode-variety--curriculum)
+- [Action Space](#action-space)
+- [Observation Space](#observation-space)
+- [GRPO Training](#grpo-training)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
+- [MCP Integration](#mcp-integration)
+- [Environment Variables](#environment-variables)
+- [Repository Structure](#repository-structure)
+- [Design Rationale](#design-rationale)
+- [References](#references)
+
+---
+
 ## The Problem: Hidden Dependencies Are Everywhere
 
 Every complex system — a microservice mesh, a global supply chain, a hospital network, a financial clearing pipeline — contains **hidden dependencies**. These are edges in a causal graph that no single tool, dashboard, or person can fully see. When something breaks, the question is always the same:
@@ -847,6 +876,141 @@ That's it. The World Modeling Layer, reward pipeline, LLM simulator, curriculum 
 | Financial clearing | 30 institutions | Counterparty exposure | Risk feed, settlement log, liquidity monitor |
 | Data pipeline | 20 DAG stages | Upstream / downstream | Lineage tool, SLA tracker, error log |
 | Cloud region | 35 services | Network / IAM dependency | CloudWatch, VPC flow logs, IAM policy |
+
+---
+
+## Adding a New Domain — Step-by-Step
+
+This is the complete checklist for wiring a new domain into cascade-mind. You touch **three files**. The environment, reward system, LLM simulator, and GRPO export are untouched.
+
+### Step 1 — Create your domain file
+
+Create `cascade_mind/server/domain/my_domain.py`:
+
+```python
+from .domain_config import DomainConfig
+
+# 1. Define your nodes (20–50 recommended)
+_NODES: tuple[str, ...] = (
+    "node-a",
+    "node-b",
+    "node-c",
+    # ... up to ~50 nodes
+)
+
+# 2. Define directed edges — (source, target) means source depends on / affects target
+_EDGES: tuple[tuple[str, str], ...] = (
+    ("node-a", "node-b"),   # node-a causes impact on node-b
+    ("node-b", "node-c"),
+    # ...
+)
+
+# 3. (Optional) Real-world incident archetypes — shown in reset observation
+_INCIDENT_ARCHETYPES: tuple[str, ...] = (
+    "Real incident description 1 — what changed and why it cascades.",
+    "Real incident description 2.",
+)
+
+# 4. Build the DomainConfig
+MY_DOMAIN = DomainConfig(
+    name="my_domain",                          # used as the key in DOMAINS dict
+    display_name="My Domain Name",             # shown in playground UI dropdown
+    nodes=_NODES,
+    edges=_EDGES,
+    node_type_label="node",                    # e.g. "service", "supplier", "department"
+    edge_type_label="depends on",              # e.g. "calls", "supplies", "refers_to"
+    task_description=(
+        "A node in the graph has been disrupted. "
+        "Identify all downstream nodes that will be affected."
+    ),
+    tool_labels={
+        # Maps standard tool names → domain-specific display labels shown to the agent
+        "query_runbook":         "Query SOP / Documentation",
+        "query_changelog":       "Query Change / Incident Log",
+        "query_monitoring":      "Query Monitoring Dashboard",
+        "query_impact_registry": "Query Dependency Registry",
+        "submit_hypothesis":     "Submit Impact Hypothesis",
+    },
+    incident_archetypes=_INCIDENT_ARCHETYPES,  # optional — omit if not needed
+)
+```
+
+**Tips for designing the graph:**
+- Aim for a graph where blast radius varies meaningfully by which node changes — highly-connected "hub" nodes should affect many others, leaf nodes should affect few
+- Use `betweenness_centrality` to check your graph has a good spread of hub vs leaf nodes (the curriculum scheduler uses this to bin difficulty)
+- 25–40 nodes with 40–80 edges works well; too sparse means trivial episodes, too dense means every episode looks the same
+
+---
+
+### Step 2 — Register it in `__init__.py`
+
+Open `cascade_mind/server/domain/__init__.py` and add two lines:
+
+```python
+from .domain_config import DomainConfig
+from .sre_domain import SRE_DOMAIN
+from .supply_chain_domain import SUPPLY_CHAIN_DOMAIN
+from .my_domain import MY_DOMAIN                     # ← add this
+
+DOMAINS: dict[str, DomainConfig] = {
+    "sre": SRE_DOMAIN,
+    "supply_chain": SUPPLY_CHAIN_DOMAIN,
+    "my_domain": MY_DOMAIN,                          # ← add this
+}
+
+__all__ = ["DomainConfig", "DOMAINS", "SRE_DOMAIN", "SUPPLY_CHAIN_DOMAIN", "MY_DOMAIN"]
+```
+
+That's it. The environment, reward system, and GRPO export will now work with your domain.
+
+---
+
+### Step 3 — Add it to the playground dropdown
+
+Open `cascade_mind/server/ui/playground.py` and find the `DOMAIN_CHOICES` list (around line 30). Add your domain:
+
+```python
+DOMAIN_CHOICES = [
+    ("SRE / Microservices",       "sre"),
+    ("Supply-Chain Disruption",   "supply_chain"),
+    ("My Domain Name",            "my_domain"),    # ← add this
+]
+```
+
+The playground will now show your domain in the dropdown. The knowledge graph visualizer, belief heatmap, trajectory replay, and score card all work automatically.
+
+---
+
+### What you get for free (zero additional code)
+
+| Component | What it does for your domain |
+|---|---|
+| `LLMSimulator` | Generates realistic noisy tool outputs using your `tool_labels` and node names |
+| `BeliefTracker` | Tracks per-node confidence using your node list |
+| `ContradictionEngine` | Detects cross-tool disagreements for your nodes |
+| `GraphPrior` | Accumulates session-level edge frequency memory for your graph |
+| `MutationEngine` | Applies mid-episode topology drift to your edge set |
+| `CurriculumScheduler` | Bins difficulty using betweenness centrality of your graph |
+| `RewardOrchestrator` | Applies rotating F-beta profiles against your ground truth |
+| `BrierScoreRubric` | Scores belief calibration across your node list |
+| `TrajectoryLogger` + `TrajectoryAuditor` | Logs and audits every episode, flags reward hacking |
+| `/export/grpo` endpoint | Exports TRL-ready JSONL with process rewards |
+| Playground UI | Visualizes your graph, belief state, trajectory, and score card |
+
+### Running your domain locally
+
+```bash
+# Start the server (your domain is available immediately)
+LLM_SIMULATOR_ENABLED=true uvicorn cascade_mind.server.app:app --port 8000
+
+# Or use it directly in Python
+from cascade_mind.server.domain import DOMAINS
+from cascade_mind.server.env.service_impact_environment import ServiceImpactEnvironment
+
+env = ServiceImpactEnvironment(domain_config=DOMAINS["my_domain"])
+obs = env.reset(seed=0)
+print(obs.message)   # LLM-generated incident alert for your domain
+```
 
 ---
 
