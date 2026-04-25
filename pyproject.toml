@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cascade-mind"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cross-service impact analysis environment for OpenEnv — agents learn to identify downstream blast radius when a microservice changes, using LLM-generated noisy SRE observations (Llama-3.1-8B via Cerebras)."
 readme = "README.md"
 requires-python = ">=3.10"
