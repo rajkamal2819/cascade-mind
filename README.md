@@ -1383,17 +1383,31 @@ The core challenge — tracing blast radius through a hidden causal graph using 
 
 ## References
 
-- [OpenEnv Specification](https://github.com/openenv/openenv)
-- [Meta × PyTorch OpenEnv Hackathon](https://huggingface.co/spaces/openenv/openenv-hackathon)
-- [Llama 3.1 Model Card](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct)
+**Framework & Environment**
+
+- [OpenEnv — GitHub (meta-pytorch)](https://github.com/meta-pytorch/openenv)
+- [openenv-core — PyPI](https://pypi.org/project/openenv-core/)
+- [cascade-mind — GitHub](https://github.com/rajkamal2819/cascade-mind)
+- [cascade-mind — HuggingFace Space](https://huggingface.co/spaces/Rajkamal2819/cascade-mind)
+
+**Models & Inference**
+
+- [Llama 3.1 8B Instruct — Model Card](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct)
 - [Cerebras Inference](https://cerebras.ai/inference)
+- [HuggingFace TRL — GRPOTrainer](https://huggingface.co/docs/trl/grpo_trainer)
+- [NetworkX — Graph Library](https://networkx.org/documentation/stable/)
+
+**Papers**
+
+- [DeepSeekMath: GRPO — Group Relative Policy Optimization (arxiv 2402.03300)](https://arxiv.org/abs/2402.03300)
+- [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via RL (arxiv 2501.12599)](https://arxiv.org/abs/2501.12599)
+- [RLHF — Training Language Models to Follow Instructions (arxiv 2203.02155, InstructGPT)](https://arxiv.org/abs/2305.20050)
+- [Process Reward Models — Let's Verify Step by Step (arxiv 2305.20050)](https://arxiv.org/abs/2305.20050)
+- [ReAct: Synergizing Reasoning and Acting in Language Models (arxiv 2210.03629)](https://arxiv.org/abs/2110.14168)
+
+**Scoring & Graph Theory**
+
 - [F-score — Wikipedia](https://en.wikipedia.org/wiki/F-score)
 - [Brier Score — Wikipedia](https://en.wikipedia.org/wiki/Brier_score)
-
----
-
-<div align="center">
-
-*Built for the Meta × PyTorch OpenEnv Hackathon · Service topology and incident scenarios are synthetic*
-
-</div>
+- [Jaccard Index — Wikipedia](https://en.wikipedia.org/wiki/Jaccard_index)
+- [Betweenness Centrality — Wikipedia](https://en.wikipedia.org/wiki/Betweenness_centrality)
