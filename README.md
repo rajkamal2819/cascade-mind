@@ -36,7 +36,7 @@ base_path: /web
 
 <br/>
 
-<a href="https://youtu.be/HwM7ya71LSQ">
+<a href="https://youtu.be/HwM7ya71LSQ" target="_blank" rel="noopener noreferrer">
   <img src="assets/demo_player.svg"
        alt="▶  Cascade-Mind demo — click to watch on YouTube"
        width="700"/>
@@ -44,7 +44,7 @@ base_path: /web
 
 <br/>
 
-<a href="https://youtu.be/HwM7ya71LSQ">
+<a href="https://youtu.be/HwM7ya71LSQ" target="_blank" rel="noopener noreferrer">
   <img src="https://img.shields.io/badge/▶%20Watch%20on%20YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white"
        alt="Watch on YouTube"/>
 </a>
