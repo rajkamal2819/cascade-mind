@@ -27,8 +27,10 @@ tags:
 
 <br/>
 
+[![▶ Watch Demo on YouTube](https://img.shields.io/badge/▶%20Watch%20Demo-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/HwM7ya71LSQ)
+
 <a href="https://youtu.be/HwM7ya71LSQ">
-  <img src="https://img.youtube.com/vi/HwM7ya71LSQ/maxresdefault.jpg" alt="cascade-mind demo video" width="680"/>
+  <img src="https://img.youtube.com/vi/HwM7ya71LSQ/maxresdefault.jpg" alt="cascade-mind demo video — click to watch" width="680"/>
 </a>
 
 </div>
