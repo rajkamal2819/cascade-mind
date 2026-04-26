@@ -1,14 +1,23 @@
 ---
-title: "Cascade-Mind: A World Modeling RL Framework for Causally-Dependent Knowledge Domains"
-thumbnail: /blog/assets/cascade-mind/thumbnail.png
-authors:
-  - user: Rajkamal2819
+title: cascade-mind
+colorFrom: gray
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
 tags:
+  - openenv
   - reinforcement-learning
   - world-modeling
-  - openenv
-  - llm-agents
+  - knowledge-graph
   - grpo
+  - brier-score
+  - curriculum-learning
+  - sre
+  - supply-chain
+  - llm
+  - networkx
+base_path: /web
 ---
 
 <div align="center">
@@ -27,10 +36,17 @@ tags:
 
 <br/>
 
-[![▶ Watch Demo on YouTube](https://img.shields.io/badge/▶%20Watch%20Demo-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/HwM7ya71LSQ)
+<a href="https://youtu.be/HwM7ya71LSQ">
+  <img src="assets/demo_player.svg"
+       alt="▶  Cascade-Mind demo — click to watch on YouTube"
+       width="700"/>
+</a>
+
+<br/>
 
 <a href="https://youtu.be/HwM7ya71LSQ">
-  <img src="https://img.youtube.com/vi/HwM7ya71LSQ/maxresdefault.jpg" alt="cascade-mind demo video — click to watch" width="680"/>
+  <img src="https://img.shields.io/badge/▶%20Watch%20on%20YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white"
+       alt="Watch on YouTube"/>
 </a>
 
 </div>
