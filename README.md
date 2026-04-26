@@ -85,6 +85,16 @@ base_path: /web
 
 ## The Problem: Hidden Dependencies Are Everywhere
 
+> 🛰️ **A satellite detects unusual military concentration near the Strait of Hormuz.**
+>
+> The strait is 21 miles wide at its narrowest point. Every single day, 21 million barrels of oil — one-fifth of the world's entire petroleum supply — pass through it on tankers. Military buildup at that chokepoint triggers a chain reaction that most people never see coming: tanker insurance premiums spike within hours. Oil futures contracts move. Airlines scramble to re-hedge their fuel costs. Every manufacturer that runs on fossil fuels recalculates margins. Inflation expectations shift. Bond traders adjust duration. Equity indices reprice. A pension fund in Oslo rebalances overnight.
+>
+> The family filling up their car that week pays more at the pump. The startup that just raised a Series B sees its valuation multiples compress. The airline passenger pays a surcharge they don't understand. The container ship reroutes around Africa, adding three weeks to a supply chain that a factory in Stuttgart was counting on.
+>
+> None of them knew about the satellite image. None of them could see the dependency graph they were living inside.
+>
+> **The world runs on hidden dependency graphs. The question is always the same: when one node changes, what else breaks — and can you trace it before it's too late?**
+
 Every complex system — a microservice mesh, a global supply chain, a hospital network, a financial clearing pipeline — contains **hidden dependencies**. These are edges in a causal graph that no single tool, dashboard, or person can fully see. When something breaks, the question is always the same:
 
 > *"What else is going to fail because of this?"*
