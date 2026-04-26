@@ -19,12 +19,17 @@ tags:
 
 [![HF Space](https://img.shields.io/badge/🤗%20HuggingFace-Space-blue)](https://huggingface.co/spaces/Rajkamal2819/cascade-mind)
 [![API Docs](https://img.shields.io/badge/FastAPI-Docs-009688?logo=fastapi)](https://rajkamal2819-cascade-mind.hf.space/docs)
-[![Demo Video](https://img.shields.io/badge/▶%20Demo-YouTube-red?logo=youtube)](https://youtu.be/HwM7ya71LSQ)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-7c3aed)](https://github.com/openenv/openenv)
 
-[**🚀 Live Playground**](https://rajkamal2819-cascade-mind.hf.space) · [**📖 API Docs**](https://rajkamal2819-cascade-mind.hf.space/docs) · [**▶ Demo Video**](https://youtu.be/HwM7ya71LSQ)
+[**🚀 Live Playground**](https://rajkamal2819-cascade-mind.hf.space) · [**📖 API Docs**](https://rajkamal2819-cascade-mind.hf.space/docs)
+
+<br/>
+
+<a href="https://youtu.be/HwM7ya71LSQ">
+  <img src="https://img.youtube.com/vi/HwM7ya71LSQ/maxresdefault.jpg" alt="cascade-mind demo video" width="680"/>
+</a>
 
 </div>
 
