@@ -32,7 +32,7 @@ base_path: /web
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-7c3aed)](https://github.com/openenv/openenv)
 
-[**🚀 Live Playground**](https://rajkamal2819-cascade-mind.hf.space) · [**📖 API Docs**](https://rajkamal2819-cascade-mind.hf.space/docs) · [**📓 Colab Training Notebook**](https://drive.google.com/file/d/1Id0evfovo38h1uHFdt6WMzik2YEOVNBA/view?usp=sharing)
+[**🚀 Live Playground**](https://rajkamal2819-cascade-mind.hf.space) · [**📖 API Docs**](https://rajkamal2819-cascade-mind.hf.space/docs) · [**📓 Colab Training Notebook**](https://drive.google.com/file/d/1Id0evfovo38h1uHFdt6WMzik2YEOVNBA/view?usp=sharing) · [**🤗 HF Space**](https://huggingface.co/spaces/Rajkamal2819/cascade-mind/tree/main)
 
 <br/>
 
