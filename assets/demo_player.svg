@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 394" width="700" height="394">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%" stop-color="#0d0d1a"/>
+      <stop offset="100%" stop-color="#1a0d2e"/>
+    </linearGradient>
+    <clipPath id="clip0">
+      <rect width="700" height="394" rx="8" ry="8"/>
+    </clipPath>
+  </defs>
+
+  <!-- Base background -->
+  <rect width="700" height="394" rx="8" ry="8" fill="url(#bg)"/>
+
+  <g clip-path="url(#clip0)">
+
+    <!-- ── Graph network decoration (SRE blast-radius theme) ── -->
+    <!-- Left cluster edges -->
+    <line x1="68" y1="68" x2="128" y2="42" stroke="#7c3aed" stroke-width="1" opacity="0.22"/>
+    <line x1="68" y1="68" x2="108" y2="108" stroke="#7c3aed" stroke-width="1" opacity="0.18"/>
+    <line x1="68" y1="68" x2="48" y2="130" stroke="#7c3aed" stroke-width="1" opacity="0.15"/>
+    <line x1="108" y1="108" x2="158" y2="128" stroke="#7c3aed" stroke-width="0.5" opacity="0.12"/>
+    <!-- Right cluster edges -->
+    <line x1="618" y1="78" x2="658" y2="48" stroke="#7c3aed" stroke-width="1" opacity="0.22"/>
+    <line x1="618" y1="78" x2="638" y2="128" stroke="#7c3aed" stroke-width="1" opacity="0.18"/>
+    <line x1="638" y1="128" x2="590" y2="138" stroke="#7c3aed" stroke-width="0.5" opacity="0.15"/>
+    <!-- Mid scattered edges -->
+    <line x1="205" y1="48" x2="252" y2="78" stroke="#7c3aed" stroke-width="0.5" opacity="0.12"/>
+    <line x1="450" y1="48" x2="498" y2="78" stroke="#7c3aed" stroke-width="0.5" opacity="0.12"/>
+    <!-- Bottom cluster edges -->
+    <line x1="160" y1="340" x2="220" y2="360" stroke="#7c3aed" stroke-width="0.5" opacity="0.1"/>
+    <line x1="480" y1="340" x2="540" y2="360" stroke="#7c3aed" stroke-width="0.5" opacity="0.1"/>
+
+    <!-- Left cluster nodes -->
+    <circle cx="68"  cy="68"  r="5" fill="#7c3aed" opacity="0.55"/>
+    <circle cx="128" cy="42"  r="4" fill="#7c3aed" opacity="0.45"/>
+    <circle cx="108" cy="108" r="4" fill="#7c3aed" opacity="0.45"/>
+    <circle cx="48"  cy="130" r="3" fill="#7c3aed" opacity="0.30"/>
+    <circle cx="158" cy="128" r="3" fill="#7c3aed" opacity="0.28"/>
+    <!-- Right cluster nodes -->
+    <circle cx="618" cy="78"  r="5" fill="#7c3aed" opacity="0.55"/>
+    <circle cx="658" cy="48"  r="3" fill="#7c3aed" opacity="0.45"/>
+    <circle cx="638" cy="128" r="4" fill="#7c3aed" opacity="0.45"/>
+    <circle cx="590" cy="138" r="3" fill="#7c3aed" opacity="0.30"/>
+    <!-- Mid nodes -->
+    <circle cx="205" cy="48"  r="3" fill="#7c3aed" opacity="0.32"/>
+    <circle cx="252" cy="78"  r="2" fill="#7c3aed" opacity="0.25"/>
+    <circle cx="450" cy="48"  r="3" fill="#7c3aed" opacity="0.32"/>
+    <circle cx="498" cy="78"  r="2" fill="#7c3aed" opacity="0.25"/>
+    <!-- Bottom nodes -->
+    <circle cx="160" cy="340" r="2" fill="#7c3aed" opacity="0.18"/>
+    <circle cx="220" cy="360" r="2" fill="#7c3aed" opacity="0.14"/>
+    <circle cx="480" cy="340" r="2" fill="#7c3aed" opacity="0.18"/>
+    <circle cx="540" cy="360" r="2" fill="#7c3aed" opacity="0.14"/>
+
+    <!-- ── P1 incident indicator (ripple rings) ── -->
+    <circle cx="350" cy="92" r="22" fill="none" stroke="#ef4444" stroke-width="1" opacity="0.14"/>
+    <circle cx="350" cy="92" r="14" fill="none" stroke="#ef4444" stroke-width="1.5" opacity="0.25"/>
+    <circle cx="350" cy="92" r="7"  fill="#ef4444" opacity="0.72"/>
+    <text x="350" y="96"
+          font-family="'Courier New', Courier, monospace"
+          font-size="7" fill="white" text-anchor="middle" font-weight="bold" opacity="0.95">P1</text>
+
+    <!-- ── Play button ── -->
+    <!-- Outer glow -->
+    <circle cx="350" cy="190" r="70" fill="#FF0000" opacity="0.08"/>
+    <!-- Main red circle -->
+    <circle cx="350" cy="190" r="54" fill="#FF0000"/>
+    <!-- White play triangle -->
+    <polygon points="338,171 338,209 376,190" fill="white"/>
+
+    <!-- ── Title ── -->
+    <text x="350" y="284"
+          font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+          font-size="22" fill="white" text-anchor="middle" font-weight="600">cascade-mind</text>
+    <text x="350" y="308"
+          font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+          font-size="13" fill="#9ca3af" text-anchor="middle">World-Modeling RL Environment &#8212; Causal Blast-Radius Analysis</text>
+    <text x="350" y="333"
+          font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+          font-size="11" fill="#6b7280" text-anchor="middle">Click to watch on YouTube</text>
+
+    <!-- ── Bottom control bar ── -->
+    <rect x="0" y="356" width="700" height="38" fill="#1a1a1a"/>
+    <!-- Progress track -->
+    <rect x="16" y="366" width="572" height="3" rx="1.5" fill="#2d2d2d"/>
+    <!-- Progress fill (~30%) -->
+    <rect x="16" y="366" width="172" height="3" rx="1.5" fill="#FF0000"/>
+    <!-- Playhead dot -->
+    <circle cx="188" cy="367.5" r="5" fill="#FF0000"/>
+    <!-- YouTube brand badge -->
+    <rect x="606" y="361" width="78" height="26" rx="4" fill="#FF0000"/>
+    <text x="645" y="378"
+          font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+          font-size="12" fill="white" text-anchor="middle" font-weight="700">YouTube</text>
+
+  </g>
+</svg>
