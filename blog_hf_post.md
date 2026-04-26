@@ -690,17 +690,17 @@ Two modifiers are then applied:
 
 **Overclaiming penalty** — if the agent submits more than X% of all nodes:
 
-$$\text{oversubmit\_frac} = \frac{n_{\text{predicted}} / 30 - \theta}{1 - \theta} \quad \text{(capped at 1.0)}$$
-$$\text{penalty} = \text{penalty\_max} \times \text{oversubmit\_frac}$$
+$$\text{oversubmit-frac} = \frac{n_{\text{predicted}} / 30 - \theta}{1 - \theta} \quad \text{(capped at 1.0)}$$
+$$\text{penalty} = \text{penalty-max} \times \text{oversubmit-frac}$$
 
 **Budget efficiency bonus** — active only in the `efficiency` reward profile:
 
-$$\text{bonus} = 0.15 \times \left(2 \times \frac{\text{max\_queries} - \text{queries\_used}}{\text{max\_queries}} - 1\right) \quad \in [-0.15, +0.15]$$
+$$\text{bonus} = 0.15 \times \left(2 \times \frac{\text{max-queries} - \text{queries-used}}{\text{max-queries}} - 1\right) \quad \in [-0.15, +0.15]$$
 
 An agent that submits early with correct answers earns up to +0.15. One that exhausts its full budget gets −0.15.
 
 Final F-beta component:
-$$\text{FBeta\_raw} = F_\beta - \text{overclaim\_penalty} + \text{budget\_bonus}$$
+$$\text{FBeta-raw} = F_\beta - \text{overclaim-penalty} + \text{budget-bonus}$$
 
 ---
 
